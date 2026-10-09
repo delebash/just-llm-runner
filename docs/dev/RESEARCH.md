@@ -797,6 +797,52 @@ step Q3):
     direction, the other, then no sort (unless removal is off). The page goes back to the first on a
     change of data, filter or sort.
 
+**The CLI's layout, and the dependencies' latest** (*web* — npm registry, quasar.dev `.md` pages,
+release notes; *measured* — a project generated, the family's suites run; 2026-10-09 — the plan:
+[`docs/plans/2026-10-09-apps-on-the-quasar-cli-layout.md`](../plans/2026-10-09-apps-on-the-quasar-cli-layout.md)):
+- Quasar is current at `quasar` 2.35.0, `@quasar/app-vite` 3.10.2, `@quasar/extras` 2.1.0,
+  `create-quasar` 5.0.32, `@quasar/cli` 5.0.9 (npm, 2026-10-09). Electron 44.7.0, electron-builder
+  26.15.3 and Capacitor 8.5.3 are current too.
+- `npm init quasar@5.0.32 <dir> -- --template app --preset sass --preset pinia --defaults` creates
+  `src/App.vue` (`<router-view />`), `layouts/MainLayout.vue` (`q-layout view="lHh Lpr lFf"` >
+  `q-header` + `q-drawer show-if-above bordered` + `q-page-container` > `router-view`), `pages/`
+  (`IndexPage.vue` and `SecondPage.vue` rooted in `q-page`; `ErrorNotFound.vue`), `router/routes.js`
+  (one layout route with children, then `/:catchAll(.*)*` → ErrorNotFound), `css/app.scss` +
+  `quasar.variables.scss`, `boot/`, `components/`, `stores/` (`index.js` = `defineStore` →
+  `createPinia`), and `.vscode/mcp.json` naming `@quasar/mcp@latest`. `--preset i18n` adds
+  `boot/i18n.js` (`createI18n({ locale: 'en-US', globalInjection: true, messages })` +
+  `app.use`), `i18n/index.js` and `i18n/en-US/index.js`, and `@intlify/unplugin-vue-i18n`.
+- **QPage** sets `min-height` by default through `style-fn(offset, height)` ("Override default CSS
+  style applied to the component"; `offset` = header + footer px, `height` = the window's or the
+  container's px), renders the `<main>` landmark (so none goes around or inside it), and must sit in
+  a `QPageContainer` inside a `QLayout`. **QDrawer**: `width` (default 300), `mini` /
+  `mini-width` (no mini in mobile behaviour), `breakpoint` (mobile behaviour up to that layout
+  width), `show-if-above`, `behavior` desktop/mobile to pin one, `overlay`; it exposes
+  `--q-drawer-width`; classes `q-drawer--standard|mini|mobile`, `q-mini-drawer-hide|only`.
+  **QLayout** `view` is 11 characters in three rows (`h/H` header, `l/L` and `r/R` drawers, `p`
+  page, `f/F` footer; upper case = fixed); `container` needs an explicit height. **Boot files** get
+  `{ app, router, store, urlPath, publicPath, redirect }`; the router is created before them;
+  `redirect` takes a URL or a router location (no `#` in hash mode) and the boot should return
+  right after it; `router.beforeEach` in a boot file is the documented way to guard routes.
+  (quasar.dev `layout/page.md`, `layout/drawer.md`, `layout/layout.md`,
+  `quasar-cli-vite/boot-files.md`.)
+- The Quasar docs MCP (`@quasar/mcp`) answered "No documentation pages are installed" from this
+  machine on 2026-10-09; quasar.dev's `.md` pages were read instead.
+- **Pinia 4.0** is "only technically breaking": ESM only, and `@vue/devtools-api` (`^8.1.5`) is a
+  required peer — npm 11 installs it on its own (the kit's `ui/` install did). **Vitest 5.0** needs
+  Vite ≥ 6.4 and Node ≥ 22.12; `clearMocks` is on by default; `vi.mock`/`vi.unmock`/`vi.hoisted`
+  throw away from the top level; unawaited `resolves`/`rejects` fail the test; `toHaveTextContent`
+  matches exactly; config files are no longer searched in parent folders. **@vueuse/core 15** drops
+  `templateRef`, Node 20 and the timer options (`scheduler` replaces them) and makes
+  `useThrottleFn` trail by default; the family uses only `useDraggable`. **@anthropic-ai/sdk
+  0.132** adds API fields and fixes a client check — nothing the kit calls changed. (Release notes
+  and the Vitest migration guide.)
+- Measured on the new versions: the kit's server suite 1136 passed (2 expected failures, 12
+  skipped), just-sqlite-sync 47/47, the template's lint and browser build.
+- **A PostCSS plugin's `parse()` without `from` makes Vite warn** ("A PostCSS plugin did not pass
+  the `from` option to `postcss.parse`") — the kit's `dropQuasarDisabledRule()` added its one rule
+  that way; passing the stylesheet's file as `from` ends it (measured, the template's build).
+
 ---
 
 ## 3 · AI tasks and the stream frames

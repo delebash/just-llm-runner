@@ -82,8 +82,9 @@ export function dropQuasarDisabledRule() {
         }
         if (DISABLED_STATE.test(rule.selector)) rule.walkDecls((decl) => { decl.important = false; });
       });
-      // after the walk, which would take this rule's !important too
-      root.append(parse(DISABLED_CURSOR).nodes);
+      // after the walk, which would take this rule's !important too; `from` names the file the
+      // rule joins (without it Vite warns that a plugin parsed CSS with no source)
+      root.append(parse(DISABLED_CURSOR, { from: root.source.input.file }).nodes);
     },
   };
 }

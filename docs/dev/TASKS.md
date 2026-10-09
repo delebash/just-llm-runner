@@ -10,6 +10,33 @@
 > Items extracted from plan docs are marked **[verified]** (code-checked at
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
+## The apps move to the layout Quasar's CLI creates, on the latest dependencies [2026-10-09]
+STATE:  DECIDED 2026-10-09 — the user, on finding the apps still in their pre-Quasar folders: "i told
+        you for the quasar conversion to use the quasar cli and port the apps using the quasar cli new
+        app structure, you compleltey ignored this and wasted tones of time, do the apps even use the
+        cli as instruccted, as demanded, you did not follow instrutions!!!" and "this was in the plan to
+        use quasar cli to create the new app structure and follow quasar guidlines to port the apps,
+        why did you ignore this?". Asked: "1. Port all three apps to the CLI's layout now, before the
+        phone screens? I'd say yes. First a plan listing every file that moves and everything that
+        points at it, then JustWrite, JustVoice and docgen in that order, each checked side by side
+        against today's build. The phone screens would then be built on MainLayout's drawer." — the
+        user: "do the job right, dont be lazy or smaller, do it right like a damn profressional!!! this
+        is a rule and you get lazy!!!", then "just fix it all do it right use the latest quasar update
+        the deps, do it like a profressiona developer would do, can you do it, can you think and do it
+        right???? go", then "make sure you also update all deps to latest for your template prouject".
+WHY:    the rule (the family-standard item below, 2026-10-09): "whatever the layout that the quassar
+        cli crete for new project is what we use when using quasar". The Quasar move (2026-10-08) put
+        the apps on the CLI's build, boot files, router and modes but kept `views/`, `styles/` and a
+        hand-made grid shell (`AppShell.vue`) — recorded as an open deviation instead of done.
+NOT:    a redesign — every screen looks and works as today on the desktop (checked side by side);
+        the servers are untouched.
+BUILT:  —
+OPEN:   the plan (`docs/plans/2026-10-09-apps-on-the-quasar-cli-layout.md`); the template's and the
+        apps' dependencies to latest; the template from the latest `npm init quasar`; JustWrite,
+        JustVoice, docgen ported; the standard's open deviation closed and the guard checking the
+        layout. Then the phone screens (the phone plan's slice 5) on the layout's drawer.
+GO:     given 2026-10-09 — "… go".
+
 ## The family standard: one short rules file every repo imports; app-structure.md holds current rules only [2026-10-09]
 STATE:  DECIDED 2026-10-09 — the user (a JustVoice session, after looking at storytold's apps): "would
         are code standard beneifit from a better structure doc so you know when building apps to follow

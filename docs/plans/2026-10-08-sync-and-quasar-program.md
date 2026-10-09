@@ -50,13 +50,16 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   + thousands of seeded convergence runs; CI green on Linux/Windows/macOS; the phone test passes on
   the Android 16 emulator (local) and the iOS 18.7 simulator (GitHub). Its own TASKS: a real
   OneDrive/Dropbox sign-in needs the user's app registrations.
-- S2: in progress — JustWrite's server side. Done so far (uncommitted in JustWrite): yjs,
-  @tiptap/y-tiptap, y-protocols, @tiptap/html, happy-dom added; the editor's extensions moved to
-  `src/services/editorSchema.js` (one list for the editor and the server; RichEditor.vue and
-  editorMentions.js use it; loads in Node). Next: book_io's diff save (§7.1), `server/src/sync.js`
-  (the engine on the book tables, the scene-HTML adapter), the routes, ids, the renderer's client
-  id + reload, reset/restore hooks, tests.
-- Q1–Q6: not started.
+- S2: DONE 2026-10-08 — JustWrite 37152e0 (the save writes only what changed; server/src/sync.js
+  — the engine on the book tables, scene text through Yjs on the editor's own schema
+  `src/services/editorSchema.js`, the routes, pairing, auto-sync, listening on the network; the
+  renderer's ids, window id and reload on sync); kit 02a4560 (CSRF allows the phone webview's
+  origins); engine ef846e4 (`openSync({ yjs })`). Server 141/141, unit 590/590, lint, build, the
+  headless smoke. The Sync screen and the phone come with Q4.
+- Q1: DONE 2026-10-08 — kit ac2385b: `template/` = a fresh default Quasar app (create-quasar 5.0.32) in the family shape (its own `server/` package; Electron mode on the kit's `runDesktopApp`, electron-builder NSIS; Capacitor mode; Biome; the CSP; SPDX headers; README with the traps). Verified: the packaged app (app://, Quasar UI, appShell, server fetch, zero errors), dev mode (server from source, `<repo>/data`), the Android build on the emulator. The kit shell gained `devUrl`/`preload`. The theme (the theming test's Sass-variable mapping, override sheet, icon set) moves into the kit with Q3.
+- Strategy for Q3/Q4 (decided while building, under "your recs"): Q3 rebuilds the kit's `Ui*` controls ON Quasar components with the same props, so every app's controls convert at once with few view changes; Q4 then moves each app onto the Quasar project structure (boot files, router, layouts, modes), its Sync screen and the phone.
+- Q2: next.
+- Q3–Q6: not started.
 
 ## Stops (things only the user can do)
 

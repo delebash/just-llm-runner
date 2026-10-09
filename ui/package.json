@@ -23,9 +23,15 @@
     "@tanstack/vue-table": "^8.21.3",
     "@vueuse/core": "^14.3.0",
     "vue-router": "^4.4.0",
-    "@floating-ui/dom": "^1.6.0"
+    "@floating-ui/dom": "^1.6.0",
+    "qrcode": "^1.5.4"
   },
   "peerDependenciesMeta": {
-    "@tanstack/vue-table": { "optional": true }
+    "@tanstack/vue-table": {
+      "optional": true
+    },
+    "qrcode": {
+      "optional": true
+    }
   }
 }

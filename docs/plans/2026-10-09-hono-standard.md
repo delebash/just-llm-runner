@@ -331,12 +331,26 @@ where close hooks matter · a router: `app.route("/", makeXRouter(…))` after a
   `"imports"` (`#app_state`, `#api/autosave_api`, `#database/demo_seed`, `#editor/html`,
   `#sync_platform`) and the kit's `#runner/lifecycle` — the kit's twin plugin and six Fastify-only
   stand-ins deleted; the phone bundle 8.0 MB; checked in Chrome on `dist/spa-in-app` (the book,
-  an image, an AI stream). Not run: the Android emulator.
+  an image, an AI stream) and on the Android 16 emulator (the debug APK: the tutorial book made
+  through the UI, kept across a force-stop, an AI answer through native HTTP from a provider that
+  refuses a webview's call).
 - Slice 5 DONE — docgen (a helper agent): 4 routers, `app.js` (FastAPI errors + its envelope as
   `onUnhandled`), the SSE jobs stream, the static UI behind a 405 route, the test client (161/161).
-- Slice 6 IN PROGRESS — JustVoice (a helper agent).
-- Slice 7 IN PROGRESS — app-structure §Q.3, the kit's READMEs, the guard's `checkOneHono`, the
-  apps' CLAUDE.md / README / ARCHITECTURE lines done; JustVoice's after slice 6.
+- Slice 6 DONE — JustVoice (a helper agent): 40 routers, `app.js` (the guards, the MCP stamp and
+  the sync flush as middleware before the routers; `serverHandle` through `c.set`), MCP on the
+  SDK's own `WebStandardStreamableHTTPServerTransport` (the SDK's Node transport is that class
+  behind `@hono/node-server`, so not `@hono/mcp`), the SSE streams on `stream`, the captures /
+  align / voice-bundle / import uploads on busboy, the static UI and `/legacy/` with `app.get`, the
+  test helpers on `app.request` (1,061/1,061; run again here). Fixed vs `:param` pairs checked on
+  the built app (340 routes): three, all already in Fastify's order. One timing difference, not on
+  the wire: the sync flush after a STREAMED answer runs when the route returns, before the stream
+  ends (Fastify's onResponse ran after it) — changes written during the analyze stream are stamped
+  by the next mutating request or the next sync, in the order they were made.
+- Slice 7 DONE — app-structure §Q.3, the kit's READMEs, the guard's `checkOneHono` (proven to fire
+  on a probe), every app's CLAUDE.md / README / ARCHITECTURE lines.
+- **The conversion is complete.** Not run: a packaged installer and the headless launcher per app
+  (§8) — the suites, the in-app and emulator checks and JustVoice's real-socket run cover the
+  server; the packaging is unchanged by this move.
 - Repos at the start: kit `main` clean, 47 commits ahead of origin; JustVoice `main` clean, pushed;
   JustWrite `master` clean, 32 ahead; docgen `main` 9 ahead (`out/` untracked, left alone);
   `just-sqlite-sync` 1 ahead with `biome.json` modified (not this session's — left alone).

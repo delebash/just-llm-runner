@@ -952,7 +952,14 @@ GitHub API and raw files, unpkg; the plan:
     (`dist/spa-in-app`): the tutorial book opens, an inserted image is stored by path
     (`/v1/images/<id>`), and an AI answer streams frame by frame (+13, +175, +336 ms … `[DONE]`).
   - Suites on Hono: the kit 1,136 passed (2 expected fail, 12 skipped), just-sqlite-sync 47/47,
-    JustWrite 148/148, docgen 161/161.
+    JustWrite 148/148, docgen 161/161, JustVoice 1,061/1,061. JustWrite's phone on the Android 16
+    emulator (debug APK): the tutorial book made through the UI, kept across a force-stop, an AI
+    answer from a provider that refuses a webview's call carried by native HTTP.
+  - **MCP:** `@modelcontextprotocol/sdk` 1.32.1's Node `StreamableHTTPServerTransport` is "a thin
+    wrapper around `WebStandardStreamableHTTPServerTransport`" through `@hono/node-server`'s
+    `getRequestListener` (`dist/esm/server/streamableHttp.js`); the SDK depends on `hono` and
+    `@hono/node-server`, so a Hono copy sits in an app's `node_modules` even when the app never
+    imports it. JustVoice uses the web-standard class directly with `c.req.raw`.
 - **Secrets:** Electron's `safeStorage` — Keychain on macOS, DPAPI on Windows; on Linux unprotected
   ("a hardcoded plaintext password") without a secret store; the async API is recommended
   (electronjs.org). `@aparajita/capacitor-secure-storage` 8.0.0 — Keychain on iOS, Keystore on

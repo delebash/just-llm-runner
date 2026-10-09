@@ -23,13 +23,14 @@
 //  3. Whether a concept SHOULD be shared at all is judgement. Everything under ADVISORY is
 //     a question, not a verdict.
 //
-// TWO KINDS OF APP while the family moves to Electron and a Node server (JustVoice's
-// docs/plans/2026-10-07-electron-node-plan.md; app-structure.md §0). An app is "electron"
-// when `electron/main.js` exists, else "tauri". The checks that encode the Tauri + Python
-// shape (scripts 3, server layout 4, the Python skeleton and ruff pin in 8, the shell's
-// doors 12-14) run per kind; everything else runs for both. An Electron app's leftover
-// Tauri/Python files (src-tauri/, the Python package, pyproject, test_*.py, scripts/py.js)
-// are ADVISORY until its step deletes them — neither required nor forbidden.
+// TWO KINDS OF APP while the family moves to Quasar (app-structure.md §Q; the order of work is
+// docs/plans/2026-10-08-sync-and-quasar-program.md). An app is "quasar" when
+// `quasar.config.js` exists (§Q), "electron" when `electron/main.js` does (§0); neither is a
+// violation. The checks that encode a layout (scripts 3, server 4, skeleton 8, the desktop
+// main 14) run per kind; everything else runs for both. The kit's `template/` — the §Q
+// reference app — is checked against §Q too (its layout checks only: it is not a product, so
+// the docs and skeleton-lane checks don't apply). The Tauri + Python kind and its checks were
+// deleted 2026-10-08: no family app runs either any more.
 
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -45,12 +46,19 @@ const APPS = [
   { name: "docgen", dir: join(FAMILY, "just_ai_i18n_docgen") },
 ];
 
-/** "electron" once the app has moved (its shell is the kit's runDesktopApp), else "tauri". */
-const kindOf = (app) => (existsSync(join(app.dir, "electron", "main.js")) ? "electron" : "tauri");
-for (const app of APPS) app.kind = kindOf(app);
+/** The §Q reference app (`template/`), checked against §Q's layout rules only. */
+const TEMPLATE = { name: "template", dir: join(KIT, "template"), template: true };
 
-// The family port registry (app-structure §1) — an Electron app's main passes it as `port`.
-const APP_PORTS = { JustWrite: 17495, JustVoice: 17494, docgen: 8742 };
+/** "quasar" (§Q), "electron" (§0), or "unknown" — which is a violation. */
+const kindOf = (app) => {
+  if (existsSync(join(app.dir, "quasar.config.js"))) return "quasar";
+  if (existsSync(join(app.dir, "electron", "main.js"))) return "electron";
+  return "unknown";
+};
+for (const app of [...APPS, TEMPLATE]) app.kind = kindOf(app);
+
+// The family port registry (app-structure §1) — an app's desktop main passes it as `port`.
+const APP_PORTS = { JustWrite: 17495, JustVoice: 17494, docgen: 8742, template: 17490 };
 
 // Ruled exceptions. An entry here means a human looked and decided it is NOT a fork —
 // with the reason, so the next reader doesn't have to re-derive it. Keep this short: a
@@ -160,32 +168,38 @@ function checkDrift(app, files, kitFiles) {
 }
 const lineCount = (p) => readFileSync(p, "utf8").split("\n").length;
 
-// ── check 3 · npm script names are the contract (app-structure §2 / §0.2) ─────
-// §2's list, plus the two §10 names ("same names in every app") for the e2e harness. An
-// Electron app has the same names without `tauri` (§0.2) — the Tauri CLI went with the move.
+// ── check 3 · npm script names are the contract (app-structure §0.2 / §Q.9) ───
+// §0.2's list includes the two §10 names ("same names in every app") for the e2e harness.
+// A Quasar app's list is §Q.9's (its e2e names join when JustWrite moves, step Q4).
 const REQUIRED_SCRIPTS = {
-  tauri: [
-    "dev", "dev:vite", "build", "build:vite", "preview:vite", "server", "lint", "test:server", "tauri",
-    "test", "screenshots",
-  ],
   electron: [
     "dev", "dev:vite", "build", "build:vite", "preview:vite", "server", "lint", "test:server",
     "test", "screenshots",
   ],
+  quasar: ["dev", "build", "build:spa", "server", "lint"],
 };
 
 function checkScripts(app) {
   const pkgPath = join(app.dir, "package.json");
   if (!existsSync(pkgPath)) return fail(app.name, "no package.json");
   const scripts = JSON.parse(readFileSync(pkgPath, "utf8")).scripts || {};
-  const contract = app.kind === "electron" ? "§0.2" : "§2";
+  const contract = app.kind === "quasar" ? "§Q.9" : "§0.2";
   for (const need of REQUIRED_SCRIPTS[app.kind]) {
     if (!scripts[need]) fail(app.name, `package.json has no "${need}" script (${contract} names are the contract)`);
   }
+  if (scripts.tauri) fail(app.name, `package.json still has a "tauri" script — the Tauri CLI went with the move (${contract})`);
   const server = scripts.server || "";
-  if (app.kind === "tauri") {
-    if (server && !/\.serve serve/.test(server)) {
-      fail(app.name, `"server" runs \`${server.replace(/^cd server && /, "")}\` — §6 says \`-m <snake>.serve serve\``);
+  if (app.kind === "quasar") {
+    // §Q.9: the desktop app is the default; the browser build is build:spa; the server is
+    // its own package, run from source.
+    const want = [
+      ["dev", "quasar dev -m electron", /^quasar dev -m electron\b/],
+      ["build", "quasar build -m electron", /^quasar build -m electron\b/],
+      ["build:spa", "quasar build", /^quasar build\s*$/],
+      ["server", "node server/src/serve.js serve", /^node server\/src\/serve\.js serve\b/],
+    ];
+    for (const [name, text, re] of want) {
+      if (scripts[name] && !re.test(scripts[name])) fail(app.name, `"${name}" runs \`${scripts[name]}\` — §Q.9 says \`${text}\``);
     }
     return undefined;
   }
@@ -205,69 +219,36 @@ function checkScripts(app) {
   if (scripts.build && !/\belectron-builder\b/.test(scripts.build)) {
     fail(app.name, `"build" runs \`${scripts.build}\` — §0.2 says \`vite build && electron-builder\``);
   }
-  if (scripts.tauri) fail(app.name, `package.json still has a "tauri" script — an Electron app has none (§0.2)`);
   return undefined;
 }
 
-// ── check 4 · the server layout (Python: app-structure §6 · Electron: §0.4) ───
+// ── check 4 · the server layout (Electron: app-structure §0.4 · Quasar: §Q.3) ──
+// The server is plain JavaScript in server/src/, entered by serve.js; its tests are vitest
+// files in server/tests/. Under Quasar it is also its own package (the packaged app installs
+// only what src-electron/package.json names).
 function checkServer(app) {
-  if (app.kind === "electron") return checkServerElectron(app);
-  return checkServerPython(app);
-}
-
-// Electron: the server is plain JavaScript in server/src/ (one file per old Python module,
-// same names), entered by serve.js; its tests are vitest files in server/tests/.
-function checkServerElectron(app) {
   const serverDir = join(app.dir, "server");
+  const section = app.kind === "quasar" ? "§Q.3" : "§0.4";
   if (!existsSync(join(serverDir, "src", "serve.js"))) {
-    fail(app.name, "server/src/serve.js missing — the server's entry (`serve`), what the shell and the launcher run (§0.4)");
+    fail(app.name, `server/src/serve.js missing — the server's entry (\`serve\`), what the shell and the launcher run (${section})`);
   }
+  if (app.kind === "quasar") {
+    const pkgPath = join(serverDir, "package.json");
+    if (!existsSync(pkgPath)) {
+      fail(app.name, "server/package.json missing — under Quasar the server is its own package (§Q.3)");
+    } else {
+      const p = JSON.parse(readFileSync(pkgPath, "utf8"));
+      if (p.type !== "module") fail(app.name, `server/package.json "type" is ${JSON.stringify(p.type)} — the family is "module"`);
+      if (!/-server$/.test(p.name || "")) fail(app.name, `server/package.json is named ${JSON.stringify(p.name)} — §Q.3 says "<app>-server"`);
+    }
+  }
+  if (app.template) return undefined; // the template's server has no tests of its own
   const testsDir = join(serverDir, "tests");
   const jsTests = existsSync(testsDir) ? readdirSync(testsDir).filter((f) => f.endsWith(".test.js")) : [];
-  if (!jsTests.length) fail(app.name, "no server/tests/*.test.js — the server's tests are vitest files (§0.4)");
+  if (!jsTests.length) fail(app.name, `no server/tests/*.test.js — the server's tests are vitest files (${section})`);
   const vitestCfg = join(serverDir, "vitest.config.js");
   if (existsSync(vitestCfg) && !readFileSync(vitestCfg, "utf8").includes("tests/**/*.test.js")) {
-    fail(app.name, "server/vitest.config.js does not include `tests/**/*.test.js` — `test:server` would run nothing (§0.4)");
-  }
-  // The Tauri/Python era's files: deleted as the move's last slice. Until then a question.
-  const leftover = (what) => info(app.name, `${what} — leftover of the Tauri/Python era (the move deletes it last)`);
-  if (existsSync(join(app.dir, "src-tauri"))) leftover("src-tauri/");
-  if (existsSync(join(serverDir, "pyproject.toml"))) leftover("server/pyproject.toml");
-  for (const pkg of pythonPackages(serverDir)) leftover(`server/${pkg}/ (the Python server package)`);
-  const pyTests = existsSync(testsDir) ? readdirSync(testsDir).filter((f) => /^test_.*\.py$/.test(f)) : [];
-  if (pyTests.length) leftover(`server/tests/test_*.py (${pyTests.length} files)`);
-  if (existsSync(join(app.dir, "scripts", "py.js"))) leftover("scripts/py.js");
-  return undefined;
-}
-
-/** A server package is a directory with an __init__.py. Without that test this picked up
- *  .pytest_cache, .ruff_cache, and JustVoice's nested justvoice_plugin/ sub-project (which
- *  has its own pyproject.toml and is not a second server). */
-function pythonPackages(serverDir) {
-  if (!existsSync(serverDir)) return [];
-  return readdirSync(serverDir).filter((d) => {
-    if (SKIP.has(d) || d.startsWith(".") || d.endsWith(".egg-info") || d === "tests") return false;
-    if (!statSync(join(serverDir, d)).isDirectory()) return false;
-    return existsSync(join(serverDir, d, "__init__.py"));
-  });
-}
-
-function checkServerPython(app) {
-  const serverDir = join(app.dir, "server");
-  if (!existsSync(serverDir)) return info(app.name, "no server/ directory");
-  const pkgs = pythonPackages(serverDir);
-  if (pkgs.length !== 1) return fail(app.name, `expected exactly one server package, found: ${pkgs.join(", ") || "none"}`);
-  const pkg = pkgs[0];
-  if (!existsSync(join(serverDir, pkg, "serve.py"))) {
-    const alt = ["cli.py", "main.py"].find((f) => existsSync(join(serverDir, pkg, f)));
-    fail(app.name, `server/${pkg}/ has no serve.py${alt ? ` (entry is ${alt})` : ""} — §6`);
-  }
-  const proj = join(serverDir, "pyproject.toml");
-  if (existsSync(proj)) {
-    const text = readFileSync(proj, "utf8");
-    const script = text.match(/^([a-z0-9-]+-server)\s*=\s*"([^"]+)"/m);
-    if (!script) fail(app.name, "pyproject has no `<name>-server = ...` console script — §6");
-    else if (!script[2].endsWith(".serve:main")) fail(app.name, `console script targets \`${script[2]}\` — §6 says \`<snake>.serve:main\``);
+    fail(app.name, `server/vitest.config.js does not include \`tests/**/*.test.js\` — \`test:server\` would run nothing (${section})`);
   }
   return undefined;
 }
@@ -325,41 +306,32 @@ function checkOneSaveDoor(app, files) {
 }
 
 // check 12 · ONE door to the shell. `invoke()` belongs in services/native.js, so
-// a command's name-as-a-string exists in exactly one place per app.
-//   tauri:    `@tauri-apps/api/core` is imported in native.js and nowhere else.
-//   electron: no `@tauri-apps/*` import anywhere in src/ (native.js included), and the
-//             ONE bridge object — the kit preload's `window.appShell` — plus the kit's
-//             `isDesktopShell` test are read only by native.js (§0.3; the rule that
-//             replaced "no window.<app> global", 2026-10-08).
+// a command's name-as-a-string exists in exactly one place per app. Both kinds: no
+// `@tauri-apps/*` import anywhere in src/ (native.js included), and the ONE bridge object —
+// the kit preload's `window.appShell` — plus the kit's `isDesktopShell` test are read only
+// by native.js (§0.3, §5; the rule that replaced "no window.<app> global", 2026-10-08).
 function checkOneShellDoor(app, files) {
   for (const file of files) {
     if (![".js", ".vue"].includes(extname(file))) continue;
     const rel = file.slice(app.dir.length + 1).replace(/\\/g, "/");
     const isDoor = rel === "src/services/native.js";
     const code = codeOf(file);
-    if (app.kind === "electron") {
-      if (/@tauri-apps\//.test(code)) {
-        fail(app.name, `${rel} imports @tauri-apps — an Electron app has no Tauri; the shell is window.appShell through services/native.js (§0.3)`);
-      }
-      if (isDoor) continue;   // THE door itself
-      if (/\bwindow\.appShell\b|\bappShell\.(invoke|on)\b/.test(code)) {
-        fail(app.name, `${rel} reads window.appShell — the one bridge object is read only by services/native.js (§0.3)`);
-      }
-      if (/\bisDesktopShell\b/.test(code)) {
-        fail(app.name, `${rel} asks isDesktopShell itself — native.js is the one place that asks (its hasShell) (§0.3)`);
-      }
-      continue;
+    if (/@tauri-apps\//.test(code)) {
+      fail(app.name, `${rel} imports @tauri-apps — the family has no Tauri; the shell is window.appShell through services/native.js (§0.3)`);
     }
     if (isDoor) continue;   // THE door itself
-    if (!/@tauri-apps\/api\/core/.test(code)) continue;
-    fail(app.name, `${rel} imports Tauri's invoke directly — every command goes through services/native.js (family shape 2026-08-15)`);
+    if (/\bwindow\.appShell\b|\bappShell\.(invoke|on)\b/.test(code)) {
+      fail(app.name, `${rel} reads window.appShell — the one bridge object is read only by services/native.js (§0.3)`);
+    }
+    if (/\bisDesktopShell\b/.test(code)) {
+      fail(app.name, `${rel} asks isDesktopShell itself — native.js is the one place that asks (its hasShell) (§0.3)`);
+    }
   }
 }
 
 // check 13 · no renderer installs a global on `window`. That was the shape of
-// JustWrite's Electron-era `window.justwrite` bridge, deleted 2026-08-14. Both kinds:
-// in an Electron app the one bridge is the kit PRELOAD's `window.appShell` — the
-// renderer still publishes nothing.
+// JustWrite's Electron-era `window.justwrite` bridge, deleted 2026-08-14. The one bridge
+// is the kit PRELOAD's `window.appShell` — the renderer publishes nothing.
 function checkNoWindowGlobal(app, files) {
   for (const file of files) {
     if (![".js", ".vue"].includes(extname(file))) continue;
@@ -370,76 +342,106 @@ function checkNoWindowGlobal(app, files) {
   }
 }
 
-// check 14 · the shells are the SAME surface.
-//   tauri:    the shells declare the same plugins and permissions, and nothing they
-//             don't use (compared among the Tauri apps only — a moved app's src-tauri/
-//             is a leftover, check 4's advisory).
-//   electron: there is one shell, the kit's `runDesktopApp`; an app's electron/main.js
-//             imports it from `@delebash/llm-runner/shell`, passes the required config
-//             fields, claims its registered port, and imports nothing else but `node:*` —
-//             no logic in main (§0.3; the rule that kept logic out of Rust carries over).
+// check 14 · there is ONE shell, the kit's `runDesktopApp`. An app's desktop main — Electron +
+// Vite: electron/main.js (§0.3) · Quasar: src-electron/electron-main.js (§Q.2) — imports it
+// from `@delebash/llm-runner/shell`, passes the required config fields, claims its registered
+// port, and imports nothing else but `node:*` (and, under Quasar, `#q-app/electron/main` for
+// the icon path) — no logic in main (the rule that kept logic out of Rust carries over).
+// Under Quasar the preload is the kit's too: src-electron/electron-preload.js imports it.
 const MAIN_REQUIRED_FIELDS = ["id", "appName", "productName", "port", "serverEntry", "dataDirEnv", "repoRoot", "distDir"];
+const DESKTOP_MAIN = {
+  electron: { rel: "electron/main.js", section: "§0.3", allowed: ["@delebash/llm-runner/shell"] },
+  quasar: { rel: "src-electron/electron-main.js", section: "§Q.2", allowed: ["@delebash/llm-runner/shell", "#q-app/electron/main"] },
+};
 
-function checkElectronMain(app) {
-  const mainPath = join(app.dir, "electron", "main.js");
-  if (!existsSync(mainPath)) return;
+function checkDesktopMain(app) {
+  const { rel, section, allowed } = DESKTOP_MAIN[app.kind];
+  const mainPath = join(app.dir, rel);
+  if (!existsSync(mainPath)) return fail(app.name, `${rel} missing — the desktop app is the kit's runDesktopApp (${section})`);
   const code = codeOf(mainPath);
   if (!/import\s*\{[^}]*\brunDesktopApp\b[^}]*\}\s*from\s*["']@delebash\/llm-runner\/shell["']/.test(code)) {
-    fail(app.name, "electron/main.js does not import runDesktopApp from @delebash/llm-runner/shell — the family's one shell (§0.3)");
+    fail(app.name, `${rel} does not import runDesktopApp from @delebash/llm-runner/shell — the family's one shell (${section})`);
   }
   for (const [, spec] of code.matchAll(/(?:^|\n)\s*import\s+(?:[^"';]*?\s+from\s+)?["']([^"']+)["']/g)) {
-    if (spec.startsWith("node:") || spec === "@delebash/llm-runner/shell") continue;
-    fail(app.name, `electron/main.js imports ${spec} — main is the kit's runDesktopApp plus config; no logic lives there (§0.3)`);
+    if (spec.startsWith("node:") || allowed.includes(spec)) continue;
+    fail(app.name, `${rel} imports ${spec} — main is the kit's runDesktopApp plus config; no logic lives there (${section})`);
   }
   const at = code.indexOf("runDesktopApp(");
-  if (at < 0) return fail(app.name, "electron/main.js never calls runDesktopApp(…) (§0.3)");
+  if (at < 0) return fail(app.name, `${rel} never calls runDesktopApp(…) (${section})`);
   const call = code.slice(at);
   const missing = MAIN_REQUIRED_FIELDS.filter((f) => !new RegExp(`[{,\\s]${f}\\s*[:,}]`).test(call));
-  if (missing.length) fail(app.name, `electron/main.js's runDesktopApp config has no ${missing.join(", ")} (§0.3 required fields)`);
+  if (missing.length) fail(app.name, `${rel}'s runDesktopApp config has no ${missing.join(", ")} (§0.3 required fields)`);
   const port = call.match(/[{,\s]port\s*:\s*(\d+)/);
   if (port && APP_PORTS[app.name] && Number(port[1]) !== APP_PORTS[app.name]) {
-    fail(app.name, `electron/main.js passes port ${port[1]} — the registry says ${APP_PORTS[app.name]} (§1)`);
+    fail(app.name, `${rel} passes port ${port[1]} — the registry says ${APP_PORTS[app.name]} (§1)`);
   }
+  if (app.kind === "quasar") {
+    const preload = join(app.dir, "src-electron", "electron-preload.js");
+    if (!existsSync(preload) || !/import\s+["']@delebash\/llm-runner\/shell\/preload["']/.test(codeOf(preload))) {
+      fail(app.name, "src-electron/electron-preload.js does not import the kit's preload (@delebash/llm-runner/shell/preload) — §Q.2");
+    }
+  }
+  return undefined;
 }
 
-function checkShellParity() {
-  const plugins = new Map();
-  const perms = new Map();
-  for (const app of APPS) {
-    if (app.kind !== "tauri") continue;
-    const cargo = join(app.dir, "src-tauri/Cargo.toml");
-    const libRs = join(app.dir, "src-tauri/src/lib.rs");
-    const capDir = join(app.dir, "src-tauri/capabilities");
-    if (!existsSync(cargo) || !existsSync(libRs)) continue;
+// ── the Quasar layout (app-structure §Q.10) ───────────────────────────────────
+// What makes a Quasar app the family's shape rather than Quasar's default: the packaging
+// (electron-builder, the main process's local packages installed as real copies), the server
+// package beside it, the CSP that lets the page reach its server, the npm traps handled, the
+// dev data folder unwatched and uncommitted, and nothing left of the Electron + Vite layout.
+function checkQuasar(app) {
+  const name = app.name;
+  const read = (rel) => (existsSync(join(app.dir, rel)) ? readFileSync(join(app.dir, rel), "utf8") : null);
+  const json = (rel) => { const t = read(rel); return t === null ? null : JSON.parse(t); };
 
-    const declared = [...readFileSync(cargo, "utf8").matchAll(/^tauri-plugin-([\w-]+)\s*=/gm)].map((m) => m[1]);
-    plugins.set(app.name, declared.sort().join(","));
-
-    // Declared but never initialised = dead weight (http/fs/process were all
-    // init-only in two shells until 2026-08-15).
-    const rs = readFileSync(libRs, "utf8");
-    for (const p of declared) {
-      const snake = p.replace(/-/g, "_");
-      if (!new RegExp(`tauri_plugin_${snake}::`).test(rs)) {
-        fail(app.name, `Cargo declares tauri-plugin-${p} but lib.rs never uses it`);
-      }
-    }
-
-    if (existsSync(capDir)) {
-      const ids = [];
-      for (const f of readdirSync(capDir).filter((f) => f.endsWith(".json"))) {
-        const cap = JSON.parse(readFileSync(join(capDir, f), "utf8"));
-        for (const p of cap.permissions || []) ids.push(typeof p === "string" ? p : p.identifier);
-      }
-      perms.set(app.name, ids.sort().join(","));
-    }
+  const root = json("package.json") || {};
+  if (root.type !== "module") fail(name, `package.json "type" is ${JSON.stringify(root.type)} — the family is "module"`);
+  if (!root.allowScripts) fail(name, `package.json has no "allowScripts" — npm 11 refuses the installs Quasar spawns without it (§Q.6)`);
+  for (const dep of Object.keys({ ...root.dependencies, ...root.devDependencies })) {
+    if (dep.startsWith("@tauri-apps/")) fail(name, `package.json depends on ${dep} — the family has no Tauri`);
   }
-  for (const [label, map] of [["plugin set", plugins], ["capability permissions", perms]]) {
-    const values = new Set(map.values());
-    if (values.size > 1) {
-      const detail = [...map].map(([a, v]) => `${a}=[${v}]`).join("  ");
-      fail("family", `the Tauri shells declare different ${label}: ${detail}`);
+
+  const cfg = read("quasar.config.js") || "";
+  const needs = [
+    [/vueRouterMode:\s*['"]hash['"]/, "build.vueRouterMode 'hash' (§Q.4)"],
+    [/bundler:\s*['"]builder['"]/, "electron.bundler 'builder' — electron-builder (§Q.2)"],
+    [/extendElectronPackageJson/, "electron.extendElectronPackageJson making the file: dependencies absolute (§Q.2)"],
+    [/--install-links/, "electron.unPackagedInstallParams with --install-links (§Q.2)"],
+    [/\*\*\/data\/\*\*/, "the dev watcher ignoring **/data/** (§Q.8)"],
+    [/delete\s+process\.env\.npm_config_allow_scripts/, "the npm_config_allow_scripts delete (§Q.6)"],
+  ];
+  for (const [re, what] of needs) if (!re.test(cfg)) fail(name, `quasar.config.js has no ${what}`);
+
+  const electronPkg = json("src-electron/package.json");
+  if (!electronPkg) fail(name, "src-electron/package.json missing — the main process's dependencies (§Q.1)");
+  else {
+    const ver = electronPkg.devDependencies?.electron || electronPkg.dependencies?.electron || "";
+    if (!/^\d+\.\d+\.\d+$/.test(ver)) fail(name, `src-electron/package.json pins electron as "${ver}" — exact versions only (§Q.1)`);
+    const serverName = json("server/package.json")?.name;
+    if (serverName && !electronPkg.dependencies?.[serverName]) {
+      fail(name, `src-electron/package.json does not depend on ${serverName} — the packaged app installs only what it names (§Q.3)`);
     }
+    if (!electronPkg.allowScripts) fail(name, `src-electron/package.json has no "allowScripts" (§Q.6)`);
+  }
+  if (existsSync(join(app.dir, "src-capacitor", "package.json")) && !json("src-capacitor/package.json").allowScripts) {
+    fail(name, `src-capacitor/package.json has no "allowScripts" (§Q.6)`);
+  }
+
+  const html = read("index.html") || "";
+  // the policy itself is full of single quotes ('self'), so the attribute is read by its own quote
+  const csp = html.match(/http-equiv=["']Content-Security-Policy["'][\s\S]*?content=(?:"([^"]*)"|'([^']*)')/i);
+  const policy = csp ? (csp[1] ?? csp[2]) : "";
+  if (!csp) fail(name, "index.html has no CSP <meta> — §Q.5");
+  else if (!/connect-src[^;]*\bhttp:/.test(policy)) fail(name, "index.html's CSP has no connect-src allowing http: — the page can't reach its server (§Q.5)");
+
+  if (!existsSync(join(app.dir, "biome.json"))) fail(name, "biome.json missing — Biome is the family's linter (§Q.1)");
+  const gi = read(".gitignore") || "";
+  if (!/^\/?data\/?\s*$/m.test(gi)) fail(name, ".gitignore does not ignore data/ — the dev data folder is never committed (§Q.8)");
+  for (const rel of ["vite.config.js", "src/main.js", "electron/main.js", "src-tauri"]) {
+    if (existsSync(join(app.dir, rel))) fail(name, `${rel} exists — a Quasar app has none (quasar.config.js is the one build config, boot files replace main.js; §Q.1)`);
+  }
+  for (const rel of ["src/router/index.js", "src/router/routes.js", "src/stores/index.js", "src/css/quasar.variables.scss", "src/App.vue"]) {
+    if (!existsSync(join(app.dir, rel))) fail(name, `${rel} missing — Quasar's layout (§Q.1)`);
   }
 }
 
@@ -602,31 +604,24 @@ function checkRetired(name, dir, patterns) {
 
 // ── check 8 · the family skeleton — target-tree.md §1–§3, executed P2–P10 ─────
 // The ratified page as assertions, INCLUDING its recorded N/As: docgen has no
-// database/ (domain persistence = workspace sidecars + the shared runner DB),
-// no KeyboardCheatsheet (feature absent), and — like its i18n — no composables/
-// until it has a composable. api/ may hold leading-underscore PRIVATE helpers
-// beside the `<area>_api.py` route files (JV's _persona_helpers.py).
-const SERVER_SKELETON = ["serve.py", "app.py", "app_state.py", "paths.py", "version.py", "auth.py"];
+// KeyboardCheatsheet (feature absent), and — like its i18n — no composables/ until it
+// has a composable. Electron + Vite apps (§0.1, §14); a Quasar app's layout is checkQuasar's
+// (§Q.10) — its renderer skeleton is re-cut when JustWrite moves (step Q4), so only the
+// config pins below apply to it today.
 const RENDERER_LANES = ["components", "views", "stores", "services", "router", "styles"];
 const SKELETON_FILES = [
   "src/styles/tokens.css", "src/styles/styles.css", "src/views/HomeView.vue",
   "src/boot.smoke.test.js", "src/services/helpDocs.js", "src/stores/ui.js",
   ".gitattributes", "biome.json", "vite.config.js", "vitest.config.js",
+  // the Electron app's shell and Node-24 doors (§0.1); what server/vitest.config.js
+  // includes is check 4's
+  "electron/main.js", "scripts/node24.js", "scripts/dev.js", "server/vitest.config.js",
 ];
-// Per kind: the Tauri app's venv launcher, or the Electron app's shell and Node-24 doors
-// (§0.1). server/vitest.config.js is here; what it includes is check 4's.
-const KIND_SKELETON_FILES = {
-  tauri: ["scripts/py.js"],
-  electron: ["electron/main.js", "scripts/node24.js", "scripts/dev.js", "server/vitest.config.js"],
-};
 const DEV_PORTS = { JustWrite: 1420, JustVoice: 1430, docgen: 1450 };
 const APP_HAS = {
   composables: new Set(["JustWrite", "JustVoice"]),
-  database: new Set(["JustWrite", "JustVoice"]),
   cheatsheet: new Set(["JustWrite", "JustVoice"]),
-  errorsAlias: new Set(["JustWrite", "JustVoice"]),
 };
-const RUFF_PIN = 'select = ["E4", "E7", "E9", "F"]';
 
 // The kit-door content pins: the named file must actually ride the kit, or the
 // adapter has been re-forked in place (name intact, implementation regrown).
@@ -634,18 +629,10 @@ const DOOR_PINS = [
   ["src/boot.smoke.test.js", /registerBootSmoke/, "the kit bootSmoke skeleton"],
   ["src/services/helpDocs.js", /makeDocsHelpAdapter/, "the kit helpDocs factory"],
   ["src/stores/ui.js", /useUiStore/, "the family store name"],
-  // JW's py.js rides the kit via its ONE intra-repo door (tests/lib/smoke-common.js);
-  // JV/docgen import the kit file directly — both forms are the ratified P7 shape.
-  ["scripts/py.js", /exec-resolve\.js|smoke-common\.js/, "the kit exec resolver (directly or via the app's door)", "tauri"],
   // The Electron app's scripts run on Electron's own Node 24 — the runtime the server
   // ships on — by running the electron binary as Node.
-  ["scripts/node24.js", /ELECTRON_RUN_AS_NODE/, "Electron's own Node (ELECTRON_RUN_AS_NODE)", "electron"],
+  ["scripts/node24.js", /ELECTRON_RUN_AS_NODE/, "Electron's own Node (ELECTRON_RUN_AS_NODE)"],
 ];
-
-function serverPkgOf(app) {
-  const pkgs = pythonPackages(join(app.dir, "server"));
-  return pkgs.length === 1 ? join(app.dir, "server", pkgs[0]) : null; // check 4 reports the !=1 case
-}
 
 // Electron (§0.1): package.json starts the shell, carries no Tauri package, and the
 // headless launchers never share the app executable's name — Windows resolves a bare
@@ -678,83 +665,41 @@ function checkSkeletonElectron(app) {
 
 function checkSkeleton(app) {
   const name = app.name;
-  // ── server package (Python; an Electron app's is a leftover — check 4's advisory) ──
-  const pkg = app.kind === "tauri" ? serverPkgOf(app) : null;
-  if (pkg) {
-    for (const f of SERVER_SKELETON) {
-      if (!existsSync(join(pkg, f))) fail(name, `server package has no ${f} — the skeleton (§1)`);
+  if (app.kind === "electron") {
+    // ── renderer ──
+    for (const lane of RENDERER_LANES) {
+      if (!existsSync(join(app.dir, "src", lane))) fail(name, `src/${lane}/ lane missing (§14)`);
     }
-    if (existsSync(join(pkg, "csrf.py"))) fail(name, "server package has csrf.py — CSRF is pure kit (P2)");
-    const errors = join(pkg, "errors.py");
-    if (APP_HAS.errorsAlias.has(name)) {
-      if (!existsSync(errors)) fail(name, "errors.py alias missing — §3b says it re-exports the platform helpers");
-      else if (!/from llm_runner\.platform/.test(readFileSync(errors, "utf8"))) {
-        fail(name, "errors.py does not import llm_runner.platform — the alias has regrown an implementation");
+    if (APP_HAS.composables.has(name) && !existsSync(join(app.dir, "src", "composables"))) {
+      fail(name, "src/composables/ lane missing (§14)");
+    }
+    for (const rel of SKELETON_FILES) {
+      if (!existsSync(join(app.dir, rel))) fail(name, `${rel} missing — the skeleton (§0.1/§14)`);
+    }
+    checkSkeletonElectron(app);
+    if (APP_HAS.cheatsheet.has(name) && !existsSync(join(app.dir, "src/components/KeyboardCheatsheet.vue"))) {
+      fail(name, "KeyboardCheatsheet.vue missing (§14)");
+    }
+    for (const [rel, re, what] of DOOR_PINS) {
+      const p = join(app.dir, rel);
+      if (existsSync(p) && !re.test(readFileSync(p, "utf8"))) {
+        fail(name, `${rel} no longer rides ${what} — the door has been re-forked in place`);
       }
-    } else if (existsSync(errors)) {
-      fail(name, "errors.py appeared — the ratified state has no docgen alias (nothing imported it)");
     }
-    const api = join(pkg, "api");
-    if (!existsSync(api)) fail(name, "no api/ package — the skeleton (§1)");
-    else {
-      for (const f of readdirSync(api)) {
-        if (!f.endsWith(".py") || f === "__init__.py" || f.startsWith("_")) continue;
-        if (!f.endsWith("_api.py")) fail(name, `api/${f} breaks the <area>_api.py naming (§1)`);
-      }
-      if (!existsSync(join(api, "health_api.py"))) fail(name, "api/ has no health_api.py (§1)");
+    // ── config ──
+    const vite = join(app.dir, "vite.config.js");
+    if (existsSync(vite)) {
+      const text = readFileSync(vite, "utf8");
+      if (!text.includes('"@renderer"')) fail(name, "vite.config.js has no @renderer alias (§3)");
+      if (!text.includes(`port: ${DEV_PORTS[name]}`)) fail(name, `vite.config.js is not on this app's dev port ${DEV_PORTS[name]} (§3)`);
     }
-    const pyText = walk(pkg).filter((f) => f.endsWith(".py")).map((f) => readFileSync(f, "utf8")).join("\n");
-    if (!pyText.includes("make_prefs_router")) fail(name, "no make_prefs_router mount — the family /v1/prefs door (P9)");
-    const db = join(pkg, "database");
-    if (APP_HAS.database.has(name)) {
-      for (const f of ["session.py", "models.py", "seed.py"]) {
-        if (!existsSync(join(db, f))) fail(name, `database/${f} missing — the SQL skeleton (§1)`);
-      }
-    } else if (existsSync(db)) {
-      fail(name, "database/ appeared — docgen's ratified state is NO app-owned SQL package (§1 N/A)");
-    }
-    const proj = join(app.dir, "server", "pyproject.toml");
-    if (existsSync(proj) && !readFileSync(proj, "utf8").includes(RUFF_PIN)) {
-      fail(name, `pyproject has no family ruff pin \`${RUFF_PIN}\` (P10)`);
-    }
-  }
-  // ── renderer ──
-  for (const lane of RENDERER_LANES) {
-    if (!existsSync(join(app.dir, "src", lane))) fail(name, `src/${lane}/ lane missing (§2)`);
-  }
-  if (APP_HAS.composables.has(name) && !existsSync(join(app.dir, "src", "composables"))) {
-    fail(name, "src/composables/ lane missing (§2)");
-  }
-  for (const rel of SKELETON_FILES) {
-    if (!existsSync(join(app.dir, rel))) fail(name, `${rel} missing — the skeleton (§2/§3)`);
-  }
-  for (const rel of KIND_SKELETON_FILES[app.kind]) {
-    if (!existsSync(join(app.dir, rel))) fail(name, `${rel} missing — the skeleton (${app.kind === "electron" ? "§0.1" : "§2"})`);
-  }
-  if (app.kind === "electron") checkSkeletonElectron(app);
-  if (APP_HAS.cheatsheet.has(name) && !existsSync(join(app.dir, "src/components/KeyboardCheatsheet.vue"))) {
-    fail(name, "KeyboardCheatsheet.vue missing (§2)");
-  }
-  for (const [rel, re, what, kind] of DOOR_PINS) {
-    if (kind && kind !== app.kind) continue;
-    const p = join(app.dir, rel);
-    if (existsSync(p) && !re.test(readFileSync(p, "utf8"))) {
-      fail(name, `${rel} no longer rides ${what} — the door has been re-forked in place`);
+    const vitest = join(app.dir, "vitest.config.js");
+    if (existsSync(vitest) && !readFileSync(vitest, "utf8").includes('"@renderer"')) {
+      fail(name, "vitest.config.js has no @renderer alias (§3 — vite/vitest in lock-step)");
     }
   }
   for (const f of walk(join(app.dir, "src"))) {
     if (basename(dirname(f)) === "__tests__") { fail(name, "a src/**/__tests__/ dir is back — tests live BESIDE their files (P8)"); break; }
-  }
-  // ── config ──
-  const vite = join(app.dir, "vite.config.js");
-  if (existsSync(vite)) {
-    const text = readFileSync(vite, "utf8");
-    if (!text.includes('"@renderer"')) fail(name, "vite.config.js has no @renderer alias (§3)");
-    if (!text.includes(`port: ${DEV_PORTS[name]}`)) fail(name, `vite.config.js is not on this app's dev port ${DEV_PORTS[name]} (§3)`);
-  }
-  const vitest = join(app.dir, "vitest.config.js");
-  if (existsSync(vitest) && !readFileSync(vitest, "utf8").includes('"@renderer"')) {
-    fail(name, "vitest.config.js has no @renderer alias (§3 — vite/vitest in lock-step)");
   }
   const pkgJson = join(app.dir, "package.json");
   if (existsSync(pkgJson)) {
@@ -767,16 +712,19 @@ function checkSkeleton(app) {
   }
 }
 
-// Cross-app: ONE biome config means byte-one — hash-compare the three files;
-// and the pinned biome version must be the SAME exact version everywhere.
+// Cross-app: ONE biome config per kind means byte-one — hash-compare the files of the apps of
+// each kind (a Quasar app lints src-electron/ and server/ as packages, so its config differs
+// from an Electron + Vite app's); and the pinned biome version must be the SAME exact version
+// everywhere, the template included.
 function checkSkeletonCrossApp() {
-  const entries = APPS.filter((a) => existsSync(join(a.dir, "biome.json")))
-    .map((a) => [a.name, hash(join(a.dir, "biome.json"))]);
-  const distinct = new Set(entries.map(([, h]) => h));
-  if (entries.length === APPS.length && distinct.size > 1) {
-    fail("family", `biome.json differs between apps (${entries.map(([n]) => n).join(" / ")}) — one config, byte-identical (P10)`);
+  for (const kind of Object.keys(DESKTOP_MAIN)) {
+    const apps = APPS.filter((a) => a.kind === kind && existsSync(join(a.dir, "biome.json")));
+    const distinct = new Set(apps.map((a) => hash(join(a.dir, "biome.json"))));
+    if (apps.length > 1 && distinct.size > 1) {
+      fail("family", `biome.json differs between the ${kind} apps (${apps.map((a) => a.name).join(" / ")}) — one config per kind, byte-identical (P10)`);
+    }
   }
-  const versions = new Set(APPS.map((a) => {
+  const versions = new Set([...APPS, TEMPLATE].map((a) => {
     const p = join(a.dir, "package.json");
     return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")).devDependencies?.["@biomejs/biome"] : undefined;
   }).filter(Boolean));
@@ -786,11 +734,8 @@ function checkSkeletonCrossApp() {
 // Kit self: the family answers apply to this repo too.
 function checkSkeletonKit() {
   if (!existsSync(join(KIT, ".gitattributes"))) fail("kit", ".gitattributes missing (P10)");
-  const proj = join(KIT, "pyproject.toml");
-  if (existsSync(proj) && !readFileSync(proj, "utf8").includes(RUFF_PIN)) {
-    fail("kit", `pyproject has no family ruff pin \`${RUFF_PIN}\` (P10)`);
-  }
 }
+
 
 // ── check 9 · the family docs standard (decided 2026-08-08, docs/dev/TASKS.md) ─
 // ADVISORY ON PURPOSE, and this is a judgement, not laziness: the backlog it
@@ -1007,20 +952,39 @@ for (const app of APPS) {
   perApp.push([app.name, files]);
   checkForks(app, files, exports_);
   checkDrift(app, files, kitFiles);
-  checkScripts(app);
-  checkServer(app);
+  // the layout checks run per kind; an app of neither kind gets one violation instead
+  if (app.kind === "unknown") {
+    fail(app.name, "neither quasar.config.js (§Q) nor electron/main.js (§0) — the layout checks can't run");
+  } else {
+    checkScripts(app);
+    checkServer(app);
+    checkSkeleton(app);
+    checkDesktopMain(app);
+    if (app.kind === "quasar") checkQuasar(app);
+  }
   checkHandRolled(app, files);
   checkRetired(app.name, app.dir, RETIRED.get(app.name));
-  checkSkeleton(app);
   checkDocs(app);
   checkTaskLifecycle(app, files);
   checkOneSaveDoor(app, files);
   checkOneShellDoor(app, files);
   checkNoWindowGlobal(app, files);
-  if (app.kind === "electron") checkElectronMain(app);
   checkResearchRegister(app.name, app.dir);
 }
-checkShellParity();
+// The §Q reference app: the layout checks and the shell doors only (it is not a product).
+if (TEMPLATE.kind !== "quasar") {
+  fail(TEMPLATE.name, `${TEMPLATE.dir} has no quasar.config.js — the template is the §Q reference app`);
+} else {
+  const files = walk(join(TEMPLATE.dir, "src"));
+  checkScripts(TEMPLATE);
+  checkServer(TEMPLATE);
+  checkSkeleton(TEMPLATE);
+  checkDesktopMain(TEMPLATE);
+  checkQuasar(TEMPLATE);
+  checkOneSaveDoor(TEMPLATE, files);
+  checkOneShellDoor(TEMPLATE, files);
+  checkNoWindowGlobal(TEMPLATE, files);
+}
 checkCrossAppTwins(perApp, kitFiles);
 checkDocsCrossApp();
 checkTrackerFormat();
@@ -1030,8 +994,8 @@ checkSkeletonKit();
 checkResearchRegister("kit", KIT);
 
 const showInfo = process.argv.includes("--info");
-console.log(`\nfamily check — ${APPS.length} apps against the kit (${exports_.size} kit exports)`);
-console.log(`  kinds: ${APPS.map((a) => `${a.name} ${a.kind}`).join(" · ")}\n`);
+console.log(`\nfamily check — ${APPS.length} apps + the template against the kit (${exports_.size} kit exports)`);
+console.log(`  kinds: ${[...APPS, TEMPLATE].map((a) => `${a.name} ${a.kind}`).join(" · ")}\n`);
 if (problems.length) {
   console.log("VIOLATIONS\n");
   for (const p of problems) console.log(`  ✗ ${p}`);

@@ -58,8 +58,16 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   headless smoke. The Sync screen and the phone come with Q4.
 - Q1: DONE 2026-10-08 — kit ac2385b: `template/` = a fresh default Quasar app (create-quasar 5.0.32) in the family shape (its own `server/` package; Electron mode on the kit's `runDesktopApp`, electron-builder NSIS; Capacitor mode; Biome; the CSP; SPDX headers; README with the traps). Verified: the packaged app (app://, Quasar UI, appShell, server fetch, zero errors), dev mode (server from source, `<repo>/data`), the Android build on the emulator. The kit shell gained `devUrl`/`preload`. The theme (the theming test's Sass-variable mapping, override sheet, icon set) moves into the kit with Q3.
 - Strategy for Q3/Q4 (decided while building, under "your recs"): Q3 rebuilds the kit's `Ui*` controls ON Quasar components with the same props, so every app's controls convert at once with few view changes; Q4 then moves each app onto the Quasar project structure (boot files, router, layouts, modes), its Sync screen and the phone.
-- Q2: next.
-- Q3–Q6: not started.
+- Q2: DONE 2026-10-08 — kit commit "The framework rules on Quasar" (named in the next status
+  update): `docs/app-structure.md` §Q (the Quasar app, from the template), §0 relabelled the
+  Electron + Vite shape the apps run until they move, the Tauri and Python halves deleted (no app
+  runs either); `scripts/check-family.js` kind "quasar" (scripts, server package, desktop main
+  and preload, the layout, the CSP, the npm traps) plus the template checked, kind "tauri" and
+  its checks deleted; the template's npm scripts made desktop-first and `npm run build` fixed
+  (`quasar.config.js` deletes `npm_config_allow_scripts`). The guard passes on the template.
+  The global CLAUDE.md Stack line waits for the user (kit TASKS, the Quasar item, OPEN 3).
+- Q3: next.
+- Q4–Q6: not started.
 
 ## Stops (things only the user can do)
 

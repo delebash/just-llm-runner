@@ -5,6 +5,11 @@
 import path from 'node:path'
 import { defineConfig } from '#q-app'
 
+// `npm run` hands an `allow-scripts` setting from the user's .npmrc to every child process as
+// npm_config_allow_scripts, and npm 11 refuses it in the project installs Quasar spawns
+// (EALLOWSCRIPTS). Each project declares its own `allowScripts`, which npm uses instead.
+delete process.env.npm_config_allow_scripts
+
 export default defineConfig((/* ctx */) => {
   return {
     // https://v2.quasar.dev/quasar-cli-vite/prefetch-feature

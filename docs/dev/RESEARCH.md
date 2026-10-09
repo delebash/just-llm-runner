@@ -583,6 +583,36 @@ do the testing"; the decisions so far and the tests' detail are JustWrite's
   Excluded as closed services: ngrok, Cloudflare Tunnel, Tailscale's own coordination, ZeroTier's
   controller.
 
+**The sync product, built** (2026-10-08 — the design:
+[`docs/plans/2026-10-08-sync-product-design.md`](../plans/2026-10-08-sync-product-design.md); the
+order of work and its status:
+[`docs/plans/2026-10-08-sync-and-quasar-program.md`](../plans/2026-10-08-sync-and-quasar-program.md)):
+the engine is its own repo, `../just-sqlite-sync` (`@delebash/sqlite-sync`), and its facts —
+convergence runs, the change file, both SQLite adapters, the Android 16 emulator and iOS 18.7
+simulator runs — live in that repo's `docs/dev/RESEARCH.md`; JustWrite's side in JustWrite's
+register, "Sync".
+
+**Quasar for the family, measured** (*measured*, 2026-10-08 — the template, `template/`, built and
+run on this machine; the rules it led to are `docs/app-structure.md` §Q). This answers the "Not
+verified" line above:
+- `app://` works with Quasar's Electron build: the packaged app loaded `app://familytemplate`
+  through the kit's `runDesktopApp`, Quasar's UI rendered, `window.appShell` was present, a fetch
+  to the server answered, zero console errors. Dev mode ran the server from source on
+  `<repo>/data`.
+- A `file:` kit dependency in the packaged app works once `extendElectronPackageJson` makes the
+  `file:` paths absolute (Quasar copies them unchanged two folders down) and
+  `unPackagedInstallParams: ['install', '--install-links']` installs real copies.
+- Biome lints a Quasar app with a `**/*.vue` override (`noUnusedImports` and
+  `noUndeclaredVariables` off — template-blind).
+- Quasar's default CSP `<meta>` blocks the renderer → server path; `connect-src 'self' http:
+  https:` fixes it.
+- npm 11.17 with an `allow-scripts` line in `~/.npmrc`: a project install without `allowScripts`
+  in its `package.json` fails `EALLOWSCRIPTS`; `npm run` passes the setting to children as
+  `npm_config_allow_scripts`, so `npm run build` failed at Quasar's `UnPackaged` install until
+  `quasar.config.js` deleted that variable (then the installer built).
+- The template's Android build (`quasar build -m capacitor -T android`) ran on the Android 16
+  emulator. An App Extension installed through `file:` was not tested (the family doesn't use one).
+
 ---
 
 ## 3 · AI tasks and the stream frames

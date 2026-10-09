@@ -21,14 +21,13 @@ app moves to Quasar, built by one set of framework rules"; the facts behind it:
 
 ```bash
 npm install                      # also: cd server && npm install; cd src-electron && npm install
-node node_modules/@quasar/app-vite/bin/quasar.js dev -m electron     # the desktop app, live
-node node_modules/@quasar/app-vite/bin/quasar.js build -m electron   # the installer → dist/electron/Packaged
-node node_modules/@quasar/app-vite/bin/quasar.js build               # the browser build → dist/spa
+npm run dev                      # the desktop app, live (quasar dev -m electron)
+npm run build                    # the installer → dist/electron/Packaged (quasar build -m electron)
+npm run build:spa                # the browser build → dist/spa
+npm run build:android            # the Android app (quasar build -m capacitor -T android)
 npm run server                   # the server alone (headless; FAMILY_TEMPLATE_UI_DIR=dist/spa serves the UI)
 npm run lint                     # Biome
 ```
-
-Run the Quasar CLI with `node …/quasar.js` (or `npm run dev` / `npm run build`) — see "Traps".
 
 ## What differs from Quasar's default, and why
 
@@ -49,9 +48,10 @@ Run the Quasar CLI with `node …/quasar.js` (or `npm run dev` / `npm run build`
 ## Traps (found 2026-10-08)
 
 - **npm 11 refuses `allow-scripts` from `.npmrc` in a project install** unless the project's
-  `package.json` declares `allowScripts` (then it uses that). Commands run through `npx`/`npm run`
-  pass the setting to the installs Quasar spawns → `EALLOWSCRIPTS`. Hence `allowScripts` in the
-  root, `src-electron/` and `src-capacitor/` package.json, and the plain `node …/quasar.js`.
+  `package.json` declares `allowScripts` (then it uses that). Hence `allowScripts` in the root,
+  `src-electron/` and `src-capacitor/` package.json. `npm run` also hands the setting to every
+  child as `npm_config_allow_scripts`, which made the installs Quasar spawns fail
+  (`EALLOWSCRIPTS`), so `quasar.config.js` deletes that variable first thing.
 - **The agent's shell sets `NoDefaultCurrentDirectoryInExePath=1`**, so cmd won't run
   `gradlew.bat` from the current folder; build Android there with
   `env -u NoDefaultCurrentDirectoryInExePath …` (a normal terminal is unaffected).

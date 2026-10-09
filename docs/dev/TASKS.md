@@ -48,19 +48,24 @@ WHY:    one framework the apps can't drift from — the user's IDEAS words (Just
 NOT:    Quasar only as a component library on today's `electron/main.js` + plain Vite (rec 1 (b)) ·
         electron-vite's template (the restructure was stopped: "that wasnts supposed to happen") ·
         Element Plus (fewer override lines in the test, but no phone layout component).
-BUILT:  nothing in code. Quasar's MCP server (`@quasar/mcp`) is added to Claude Code at user scope.
-OPEN:   1. The sync design for JustWrite, made so any app can add it — across desktops, or the
-           server in the cloud: JustWrite's TASKS item "The phone app's UI library…" OPEN 2,
-           `../justwrite-app/docs/plans/2026-10-08-sync-design.md`. Research underway.
-        2. The framework rules: `docs/app-structure.md` rewritten for Quasar, and
-           `scripts/check-family.js` checking it; Quasar's facts into RESEARCH §2 first (rec 4).
-        3. A fresh default Quasar app, made the family template with the test's theme (rec 3).
-        4. JustWrite, then JustVoice, then docgen move onto it; the servers stay as they are.
-        5. The kit's UI: Quasar's components replace its generic controls; the family pieces are
-           rebuilt on Quasar (rec 2).
-        6. The global CLAUDE.md Stack line still names electron-vite's template (rec 1 settles it;
+BUILT:  Quasar's MCP server (`@quasar/mcp`) is added to Claude Code at user scope. The order of
+        work and its live status: `docs/plans/2026-10-08-sync-and-quasar-program.md`. Done there:
+        the sync design (JustWrite's TASKS "Sync — offline first…"; the engine is
+        `../just-sqlite-sync`); `template/` — a fresh default Quasar app in the family shape
+        (rec 3; ac2385b); the framework rules — `docs/app-structure.md` §Q written from the
+        template, the Tauri and Python halves deleted, `scripts/check-family.js` checking kind
+        "quasar" and the template (2026-10-08).
+OPEN:   1. The kit's UI: Quasar's components replace its generic controls; the family pieces are
+           rebuilt on Quasar (rec 2), with the theming test's theme (program step Q3).
+        2. JustWrite, then JustVoice, then docgen move onto it; the servers stay as they are
+           (steps Q4–Q6). The skeleton checks for a moved app are re-cut with JustWrite's move.
+        3. The global CLAUDE.md Stack line still names electron-vite's template (rec 1 settles it;
            the new text is shown to the user first). The stopped restructure's leftovers — the
-           `biome.json` lines in JustVoice and JustWrite, this repo's `stash@{0}` — remain.
+           `biome.json` lines in JustVoice and JustWrite, this repo's `stash@{0}`, docgen's
+           uncommitted tree (the guard reports its kind as unknown) — remain.
+        4. Docs that still name Python: `docs/dev/install-runbook.md`, `server/README.md` "Check
+           it" (the route diff against a Python server) — JustVoice's TASKS lists them with the
+           rest of the conversion's waiting work.
 GO:     given 2026-10-08 — "1-5 your rec … go" and "continue go" (the framework rules).
 
 ## The family moves to Electron and a Node server — the plan is approved, step 1 underway [2026-10-07]

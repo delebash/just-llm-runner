@@ -44,6 +44,15 @@ const props = defineProps({
   // The desktop's folder picker: () => Promise<string|null>. Without one (a browser), the folder
   // is typed.
   pickFolder: { type: Function, default: null },
+  // The phone's camera: () => Promise<string|null> — a pairing code read from a QR code. Without
+  // one, the code is pasted.
+  scanCode: { type: Function, default: null },
+  // Can other devices reach this one? A computer can (it runs a server); the phone can't (it
+  // connects to a computer), so it has no "Let my other devices connect" and no code of its own.
+  reachable: { type: Boolean, default: true },
+  // Is there a cloud folder here? On a computer, a folder the desktop's sync app keeps in step; the
+  // phone has none until it can sign in to OneDrive or Dropbox.
+  cloudFolder: { type: Boolean, default: true },
 });
 
 const status = ref(null);
@@ -154,6 +163,13 @@ async function copyPairingCode() {
   } catch {
     pushToast({ message: "Couldn't copy — select the code and copy it.", kind: "error" });
   }
+}
+
+async function scanAndPair() {
+  const text = await props.scanCode();
+  if (!text) return;
+  joinCode.value = text;
+  await pairWithCode();
 }
 
 async function pairWithCode() {
@@ -287,6 +303,7 @@ onBeforeUnmount(() => clearInterval(timer));
     <!-- other devices on the network: pairing -->
     <div class="lu-card lu-sync-block">
       <b>Other devices</b>
+      <template v-if="reachable">
       <label class="lu-sync-toggle">
         <UiToggle :model-value="!!settings.listenOnNetwork" :disabled="busy === 'listen'" @update:model-value="setListening" />
         <span>Let my other devices connect</span>
@@ -306,10 +323,13 @@ onBeforeUnmount(() => clearInterval(timer));
           </div>
         </div>
       </div>
+      </template>
+      <span v-else class="lu-muted">Pair this device with a computer: on the computer, Settings → Sync → Other devices → Show pairing code; then scan it or paste it here.</span>
       <b class="lu-sync-sub">Pair with a code</b>
       <UiTextarea v-model="joinCode" :rows="3" size="small" width="prose" placeholder="Paste the pairing code from your other device" />
       <div class="lu-sync-actions">
         <UiButton intent="primary" size="small" :loading="busy === 'join'" :disabled="!joinCode.trim()" @click="pairWithCode">Pair</UiButton>
+        <UiButton v-if="scanCode" intent="secondary" size="small" :disabled="busy === 'join'" @click="scanAndPair">Scan code…</UiButton>
       </div>
     </div>
 
@@ -317,6 +337,8 @@ onBeforeUnmount(() => clearInterval(timer));
     <div class="lu-card lu-sync-block">
       <b>Cloud folder</b>
       <span class="lu-muted">A folder that Dropbox, OneDrive or another sync app keeps the same on every device. Each device writes its own encrypted files there.</span>
+      <span v-if="!cloudFolder" class="lu-muted"><em>Not on this device yet — it needs signing in to OneDrive or Dropbox. Pair with a computer, or carry a file by hand.</em></span>
+      <template v-else>
       <code v-if="settings.folder" class="lu-sync-code">{{ settings.folder }}</code>
       <span v-else class="lu-muted"><em>No folder chosen.</em></span>
       <div v-if="!pickFolder" class="lu-sync-actions">
@@ -328,6 +350,7 @@ onBeforeUnmount(() => clearInterval(timer));
         <UiButton v-if="settings.folder" intent="ghost" size="small" @click="setFolder(null)">Stop using it</UiButton>
       </div>
       <div v-if="folderNote" class="lu-error">{{ folderNote }}</div>
+      </template>
     </div>
 
     <!-- by hand -->

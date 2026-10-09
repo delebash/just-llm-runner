@@ -97,3 +97,22 @@ export function workerFetch(worker) {
     });
   };
 }
+
+/**
+ * Answer the worker's calls (the kit's `callWindow`, server/src/platform/worker/runtime.js): what
+ * only the window can do — the phone's native plugins. `handlers` maps an op to an async function
+ * of its args; register before the worker's app is built (it may ask while starting).
+ */
+export function answerWorkerCalls(worker, handlers) {
+  worker.addEventListener("message", async (event) => {
+    const m = event.data;
+    if (m?.type !== "call") return;
+    try {
+      const fn = handlers[m.op];
+      if (!fn) throw new Error(`no window handler for ${m.op}`);
+      worker.postMessage({ type: "call-result", id: m.id, ok: true, value: await fn(m.args) });
+    } catch (e) {
+      worker.postMessage({ type: "call-result", id: m.id, ok: false, error: String(e?.message ?? e) });
+    }
+  });
+}

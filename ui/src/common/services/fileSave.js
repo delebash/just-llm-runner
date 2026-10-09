@@ -22,21 +22,24 @@
 //   configureFileSave({ save: (blob, opts) => window.myShell.saveFile(...) });
 //
 // `save` resolves { ok: true, path } on success, null when the user cancelled,
-// and throws on a real failure.
+// and throws on a real failure. `available()` says when it can run — by default
+// inside the desktop shell; a phone app (whose `save` is its share sheet, with
+// no shell) passes its own (2026-10-08, the kit's docs/plans/2026-10-08-the-phone.md).
 
 import { isDesktopShell } from "./external.js";
 
-const config = { save: null };
+const config = { save: null, available: () => isDesktopShell() };
 
 /** Wire the host's native "save as". Merge semantics, like configureExternal. */
-export function configureFileSave({ save } = {}) {
+export function configureFileSave({ save, available } = {}) {
   if (save !== undefined) config.save = save || null;
+  if (available !== undefined) config.available = available || (() => isDesktopShell());
 }
 
 /** Will `saveBlob` open a real dialog, or drop the file into Downloads? Lets a
  *  caller word its button honestly ("Save as…" vs "Download"). */
 export function canSaveNatively() {
-  return !!config.save && isDesktopShell();
+  return !!config.save && config.available();
 }
 
 /**

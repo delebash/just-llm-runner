@@ -96,7 +96,11 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   `#q-app`; the initial navigation made in the boot file (Quasar installs the router after it).
   Verified: unit 183/183, server 1055/1055, lint, the guard, the smoke on a snapshot of the real
   data, dev mode with the audio.cpp dev build, the installer, the packaged app and the headless
-  launcher; ten screens match today's build except disabled buttons. JustVoice's sync is next in Q5.
+  launcher; ten screens match today's build except disabled buttons. Q5 DONE 2026-10-08 with
+  JustVoice's sync — JustVoice ca75306 (projects, scripts, personas, lexicons on the product's app
+  layer, just-sqlite-sync e1f703a + c3d93b2; Settings → Sync; docs/sync.md; JustVoice's TASKS lists
+  the choices made where the decision had gaps). JustWrite's sync moved onto the same app layer
+  (JustWrite 6ed2b63).
 - Merged 2026-10-08 by the user's go ("your rec all go"): JustWrite and JustVoice's `quasar`
   branches fast-forwarded into their main branches (JustVoice pushed; JustWrite local). The
   disabled-rule PostCSS step, the template's theme and the Stack line followed the same go.

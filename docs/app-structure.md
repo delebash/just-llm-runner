@@ -37,7 +37,20 @@ from Quasar's default and why. Where §Q and §1–§14 disagree, §Q wins.
 ### Q.1 · The layout
 
 **The layout is the one Quasar's CLI creates for a new project** (the user, 2026-10-09) — the
-template's, made with `npm init quasar`. The apps don't follow it yet (Open deviations).
+template's, made with `npm init quasar`; the three apps moved to it 2026-10-09
+(`plans/2026-10-09-apps-on-the-quasar-cli-layout.md`):
+- `src/App.vue` is a bare `<router-view />` — the routes decide what shows.
+- `src/layouts/MainLayout.vue` is the app's chrome on Quasar's layout: `q-layout` with the title
+  bar in `q-header`, the sidebar in `q-drawer` (Quasar's mobile drawer at phone width, where the
+  app has a phone; `behavior="desktop"` where it doesn't), the pages in `q-page-container`. It is
+  the parent route of every page.
+- `src/pages/<Name>Page.vue`, one per route, each rooted in `q-page` with the kit's `style-fn`:
+  `pageFill` (as tall as the space under the header — the page owns its scrollers) or
+  `pageFlow` (it flows in an area scroller the layout holds, sized by its own classes).
+- A screen outside the chrome is a route of its own beside the layout route — the connection-error
+  page (`/offline`), JustVoice's dictation window (`/dictate`).
+- Modules that aren't pages go to `components/` (a Settings section, a modal) or `services/`;
+  stylesheets are `src/css/` (`tokens.css`, `app.scss`), listed in `quasar.config.js > css`.
 
 ```
 <repo>/
@@ -207,14 +220,22 @@ origins (the kit's `CAPACITOR_ORIGINS`) and Quasar's dev server.
 - **Start-up code lives in boot files** (`src/boot/<name>.js`, `defineBoot` from `'#q-app'`, listed
   in `quasar.config.js > boot`), not `main.js`: the kit's UI install (`installLlmUi`), the
   appearance engine, the native bridge's openers. Quasar awaits them, then installs the router and
-  mounts `App.vue` on `#q-app`. A boot can't swap the root component, so a start-up that may
-  end on another screen (JustWrite's connection-error screen when the server is down) sets a flag
-  the root reads (JustWrite: `App.vue` renders the shell `AppShell.vue` or the error screen).
+  mounts `App.vue` on `#q-app`. A boot can't swap the root component, so a start-up that ends
+  on another screen routes there: a `router.beforeEach` guard in the boot file (Quasar's documented
+  place for one) sends every route to it — `/offline?from=…` while the server is down, back to `from`
+  once it answers; the root stays a bare `<router-view />`.
   The boot smoke test runs the same steps by hand, since Quasar's entry exists only inside its
   build; vitest aliases `#q-app` to `@quasar/app-vite` (Quasar's own alias).
 - **Never** Quasar's private composables (`useField`, `useDark` are private in 2.35); a control of
   our own sits in `QField`'s `control` slot; dark state is `$q.dark`.
-- Pages are lazy routes (`() => import('@/pages/…')`); `build.vueRouterMode: 'hash'`.
+- Pages are lazy routes (`() => import('…/pages/…')`); the layout is imported, not lazy — every
+  screen needs it, and lazily its components' styles moved into a later chunk, after the app's,
+  and won ties with them (measured on JustVoice). `build.vueRouterMode: 'hash'`.
+- The layout's root is fixed to the window, clipped and opaque (the kit's `quasar/theme.css`,
+  "Layout"; an app's root class may paint its own colour): the window never scrolls, and Chrome
+  paints the app and its overlays in that one layer, with sub-pixel text. The page container
+  fills it, so `pageFill` is right at every UI zoom (Quasar's own window measurements are
+  unzoomed pixels).
 
 ### Q.5 · The CSP
 
@@ -319,6 +340,8 @@ Chromium keeps its files there locked and the watcher fails on them (EBUSY).
   kit's `dropQuasarDisabledRule()`; `src/css/quasar.variables.scss` importing the kit's theme; `data/` in `.gitignore`; Quasar's
   router, store, `quasar.variables.scss` and `App.vue` files; no `@tauri-apps/*` package, no
   `vite.config.js`, no `src/main.js`, no `electron/main.js`, no `src-tauri/`.
+- **the CLI's layout** (Q.1): `src/layouts/MainLayout.vue`; pages in `src/pages/`; no
+  `src/views/`, `src/styles/` or `src/AppShell.vue`; `App.vue`'s template a bare `<router-view />`.
 - Biome's version is one exact pin across the family, the template included; `biome.json` is
   byte-identical among the apps.
 
@@ -402,9 +425,9 @@ kit's peer dependencies go in THIS app's `package.json` (`ui/package.json` lists
 > boot files, and the theme maps Quasar's variables onto the kit's tokens.
 
 - **Vue 3 + `vue-router` in HASH mode** + **per-domain Pinia stores** (`stores/<domain>.js`).
-- **`src/styles/tokens.css`** — copy the reference block from the kit's
-  `common/tokens.contract.css` and retune values; **`src/styles/styles.css`** — layout
-  only: the `height:100%` chain (NEVER `100vh`), ONE scroller per area.
+- **`src/css/tokens.css`** — copy the reference block from the kit's
+  `common/tokens.contract.css` and retune values; **`src/css/app.scss`** — the app's own
+  classes: the `height:100%` chain (NEVER `100vh`), ONE scroller per area.
 - **Kit-first, always**: controls come from `@delebash/llm-ui` (`UiButton`, `UiInput`,
   `UiSelect`, `UiMultiSelect`, `UiCheckbox`, `pushToast`…). **A missing capability is
   built IN THE KIT** on Quasar's components with the one-`intent` design contract —
@@ -861,10 +884,10 @@ where the app owns SQL — JW + JV; docgen deliberately has NONE (workspace side
 the kit's `platform/errors` (JW + JV). `cli.js` stays where an app has domain subcommands. Tests
 in `server/tests/*.test.js`.
 
-**Renderer** (`src/`): Quasar's `boot/`, `router/`, `stores/` and `css/` (§Q.1), plus the lanes
-the apps kept from before Quasar — `components/ views/ services/ styles/` (+ `composables/` and
-`i18n/` where the app has them) · `styles/tokens.css` + `styles/styles.css` ·
-`views/HomeView.vue` · `components/KeyboardCheatsheet.vue` where the feature exists (JW + JV) ·
+**Renderer** (`src/`): the layout Quasar's CLI creates (§Q.1) — `App.vue`, `boot/`,
+`layouts/MainLayout.vue`, `pages/`, `components/`, `router/`, `stores/`, `css/` — plus `services/`
+(+ `composables/` and `i18n/` where the app has them) · `css/tokens.css` + `css/app.scss` ·
+`pages/HomePage.vue` · `components/KeyboardCheatsheet.vue` where the feature exists (JW + JV) ·
 `stores/ui.js` exporting `useUiStore`, prefs SERVER-backed via the kit client · tests BESIDE
 their files (no `__tests__/` dirs) with `boot.smoke.test.js` riding the kit's
 `registerBootSmoke` · `services/helpDocs.js` riding `makeDocsHelpAdapter`.
@@ -877,10 +900,6 @@ CRLF, `.sh` LF).
 
 ## Open deviations
 
-- **The apps' renderer folders aren't Quasar's layout yet.** The rule (the user, 2026-10-09):
-  "whatever the layout that the quassar cli crete for new project is what we use" — the
-  template's `pages/`, `layouts/` and `css/` (§Q.1). The apps still keep `views/` and `styles/`;
-  the move needs its own plan and go (the kit's TASKS).
 - **JustWrite's `/v1/settings`** still mixes operator rows with the renderer document behind the
   mapped `/v1/prefs` door (recorded 2026-08-08, not re-checked).
 - **docgen's problem+json handler adoption and the alias sweep** (`plans/archive/target-tree.md`

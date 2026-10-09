@@ -30,11 +30,18 @@ WHY:    the rule (the family-standard item below, 2026-10-09): "whatever the lay
         hand-made grid shell (`AppShell.vue`) — recorded as an open deviation instead of done.
 NOT:    a redesign — every screen looks and works as today on the desktop (checked side by side);
         the servers are untouched.
-BUILT:  —
-OPEN:   the plan (`docs/plans/2026-10-09-apps-on-the-quasar-cli-layout.md`); the template's and the
-        apps' dependencies to latest; the template from the latest `npm init quasar`; JustWrite,
-        JustVoice, docgen ported; the standard's open deviation closed and the guard checking the
-        layout. Then the phone screens (the phone plan's slice 5) on the layout's drawer.
+BUILT:  2026-10-09 — the plan (`docs/plans/2026-10-09-apps-on-the-quasar-cli-layout.md`, §8 the
+        record). Dependencies to latest in the template, the kit and the three apps (Quasar 2.35.0,
+        app-vite 3.10.2, Pinia 4, Vitest 5, VueUse 15 — kit 4b42ae5 a2f99cc, JW bed0fdc, JV 616a209,
+        docgen 04484f3). The kit's half: `pageFill`/`pageFlow`, the layout's root in
+        `quasar/theme.css`, TitleBar `#start` (76bded6 270a60c 8256f31). JustWrite (afccfb0 60a8477
+        bac3120 19e2163), JustVoice (e9c289c 583dd12), docgen (2cac01c) in the CLI's layout —
+        `App.vue` a bare `<router-view />`, `layouts/MainLayout.vue` on q-layout/q-header/q-drawer/
+        q-page-container, `pages/<Name>Page.vue` rooted in q-page, `css/`; each checked side by side
+        against its pre-port build (ten screens, shell and overlay states, UI zoom 0.9/1/1.15,
+        1024/1920/560 windows, dark mode, the connection-error page). The standard's open deviation
+        closed; the guard checks the layout.
+OPEN:   the phone screens (the phone plan's slice 5) on the layout's drawer.
 GO:     given 2026-10-09 — "… go".
 
 ## The family standard: one short rules file every repo imports; app-structure.md holds current rules only [2026-10-09]

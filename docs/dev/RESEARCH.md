@@ -854,6 +854,16 @@ release notes; *measured* — a project generated, the family's suites run; 2026
   `quasar.config.js > css` in the client entry before the app's modules (a `~`-prefixed entry is
   imported as written, so an alias resolves) — moving stylesheets there from a boot file changes the
   cascade order against stylesheets the modules import.
+- **The same layout on JustVoice and docgen** (*measured*, 2026-10-09, the same way): a fixed layout
+  root that is *transparent* is still a layer of its own, and Chrome draws its text grey-smoothed —
+  the root must paint (the kit's rule paints `var(--bg)`; docgen, which has no `--bg`, paints
+  `--surface-2` on its root class). A lazily loaded layout route puts its components' styles in a
+  later chunk, after the app's, where they win ties (the kit TitleBar's scoped gap beat JustVoice's:
+  16px → 6px); imported, they stay in the entry stylesheet. QLayout pads the page container by the
+  header's `offsetHeight` (whole pixels): under a UI zoom where the header's height is fractional,
+  the content sits up to 1px off; at zoom 1 nothing moves. QDrawer's `width` is applied in layout
+  pixels, so a content-sized rail is measured with `getComputedStyle(el).width` (the zoomed
+  `getBoundingClientRect` would be wrong).
 - **A PostCSS plugin's `parse()` without `from` makes Vite warn** ("A PostCSS plugin did not pass
   the `from` option to `postcss.parse`") — the kit's `dropQuasarDisabledRule()` added its one rule
   that way; passing the stylesheet's file as `from` ends it (measured, the template's build).

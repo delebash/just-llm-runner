@@ -273,3 +273,25 @@ the ten screens against the pre-port build (live values and ≤ 8/255 only); the
 1.15, dark, the scrolled Voices list and its sticky header, keep-alive across a navigation, the help
 drawer and the AI-tasks panel, 1024 and 1920 windows) — the same but the listed two; the dictation
 window; the connection-error page and its way back.
+
+**docgen** (2cac01c) — the same shape: the title bar in `q-header`, the nav in a `q-drawer` that
+keeps desktop behaviour at every width (`behavior="desktop"` — docgen has no phone), the one main
+scroller in `q-page-container`. What the side-by-side taught:
+
+- The layout's root paints docgen's page colour (`.shell`, `--surface-2`): docgen's tokens have no
+  `--bg`, so the kit's rule alone left it unpainted.
+- Home is three alternative roots (`v-if`), so its q-page wraps them, with `pageFill` — with
+  `pageFlow` its card stopped filling the window. Every other page flows (`pageFlow`).
+- The e2e contract test scanned `src/views` by a `path.join` the greps missed; it scans
+  `src/pages`. The same form was swept in every repo.
+
+Checked: lint; unit 3 and server 161; build:spa; e2e 20/20; the ten screens and the shell's states
+against the pre-port build — the same but the help drawer's and the AI-tasks panel's text, sub-pixel
+smoothed now (as JustVoice's).
+
+**The standard** — `app-structure.md` §Q.1 describes the layout as the apps have it (pages,
+`pageFill`/`pageFlow`, the screens outside the chrome), §Q.4 the routing guards, the imported
+layout and the fixed root, §14 the renderer lanes; the open deviation is gone. The guard
+(`check-family.js`, Quasar check) fails an app without `src/layouts/MainLayout.vue` or pages in
+`src/pages/`, with `src/views/`, `src/styles/` or `src/AppShell.vue`, or whose `App.vue` template
+isn't a bare `<router-view />` — bite-tested (a `src/views/` in docgen).

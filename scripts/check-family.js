@@ -437,6 +437,24 @@ function checkQuasar(app) {
   for (const rel of ["src/router/index.js", "src/router/routes.js", "src/stores/index.js", "src/css/quasar.variables.scss", "src/App.vue"]) {
     if (!existsSync(join(app.dir, rel))) fail(name, `${rel} missing — Quasar's layout (§Q.1)`);
   }
+  // The renderer is laid out as Quasar's CLI creates a project (the user, 2026-10-09: "whatever the
+  // layout that the quassar cli crete for new project is what we use"): the chrome in
+  // layouts/MainLayout.vue, the screens in pages/, the stylesheets in css/, and a bare root.
+  if (!existsSync(join(app.dir, "src/layouts/MainLayout.vue"))) {
+    fail(name, "src/layouts/MainLayout.vue missing — the app's chrome is Quasar's layout, as the CLI creates it (§Q.1)");
+  }
+  const pagesDir = join(app.dir, "src/pages");
+  if (!existsSync(pagesDir) || !walk(pagesDir).some((f) => f.endsWith(".vue"))) {
+    fail(name, "src/pages/ has no pages — the screens are <Name>Page.vue there, as the CLI creates them (§Q.1)");
+  }
+  for (const rel of ["src/views", "src/styles", "src/AppShell.vue"]) {
+    if (existsSync(join(app.dir, rel))) fail(name, `${rel} exists — the CLI's layout has pages/, css/ and layouts/MainLayout.vue in its place (§Q.1)`);
+  }
+  const appVue = read("src/App.vue") || "";
+  const appTemplate = (appVue.match(/<template>([\s\S]*)<\/template>/) || [])[1] || "";
+  if (appTemplate.replace(/<!--[\s\S]*?-->/g, "").trim() !== "<router-view />") {
+    fail(name, "src/App.vue's template is not a bare <router-view /> — what shows is the routes' choice, as the CLI creates the root (§Q.1)");
+  }
 }
 
 // ── check 6 · the same file in two apps and in neither the kit nor the standard ─

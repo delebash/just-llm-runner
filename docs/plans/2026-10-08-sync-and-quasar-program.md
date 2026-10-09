@@ -131,6 +131,13 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   the packaged app and the headless launcher; ten screens match the Electron + Vite build except
   live values and the appearance slider (2 px — Quasar's reset of a range input's margin).
   docgen's TASKS, "docgen on Quasar".
+- The CLI's layout: DONE 2026-10-09 — the user found the apps still in their pre-Quasar folders
+  (`views/`, `styles/`, a grid `AppShell.vue`) and ruled the port to the layout `npm init quasar`
+  creates, on the latest dependencies. Plan and record:
+  `2026-10-09-apps-on-the-quasar-cli-layout.md`; the kit's TASKS item. JustWrite, JustVoice and
+  docgen on `layouts/MainLayout.vue` + `pages/` + `css/`, `App.vue` a bare `<router-view />`, each
+  checked side by side against its pre-port build; the guard checks the layout. Next: the phone's
+  slice 5 on the layout's drawer.
 
 ## Stops (things only the user can do)
 

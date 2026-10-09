@@ -2,9 +2,24 @@
 // SPDX-License-Identifier: MIT
 // Shared switch-style boolean — visually distinct from a checkbox (use for
 // standalone on/off settings; use UiCheckbox for row/multi-select booleans).
-// Self-contained: scoped styles driven by the host's design tokens (safe
-// fallbacks). Supersedes JvToggle.
+// Supersedes JvToggle.
 //   v-model="on"  :disabled  :aria-label
+//
+// Quasar's QToggle underneath (the kit's controls on Quasar —
+// docs/plans/2026-10-09-kit-controls-on-quasar.md); the look is the kit's theme
+// (../../quasar/theme.css, "Switch"). role="switch" with aria-checked, Enter and Space flip it,
+// and it leaves the tab order when disabled — as the native button it replaces. `ariaLabel` is
+// the switch's aria-label (QToggle's own `label` would also print it). A caller's `label` attribute
+// stays off the switch, as it stayed an unshown attribute on the native button (docgen's Server
+// settings passes one — found 2026-10-09, its TASKS); every other attribute reaches the switch.
+// It always has a name, so QToggle renders its hidden native checkbox: a <label> round the switch
+// and its text (the kit's warm-on-startup and Sync rows, docgen's Server settings) clicks that
+// input, the click reaches QToggle and flips it — as a label clicked the native button before.
+import { QToggle } from "quasar";
+import { computed, useAttrs } from "vue";
+
+defineOptions({ inheritAttrs: false });
+
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
@@ -12,64 +27,30 @@ const props = defineProps({
   ariaLabel: { type: String, default: undefined },
 });
 const emit = defineEmits(["update:modelValue", "change"]);
+const attrs = useAttrs();
+const passAttrs = computed(() => {
+  const rest = { ...attrs };
+  delete rest.label;
+  return rest;
+});
 
-function flip() {
+function onUpdate(next) {
   if (props.disabled) return;
-  const next = !props.modelValue;
   emit("update:modelValue", next);
   emit("change", next);
 }
 </script>
 
 <template>
-  <button
-    type="button"
-    role="switch"
+  <QToggle
+    name="ui-toggle"
+    v-bind="passAttrs"
+    :model-value="modelValue"
+    :disable="disabled"
     :id="id"
-    :aria-checked="modelValue ? 'true' : 'false'"
     :aria-label="ariaLabel"
-    :disabled="disabled"
     class="ui-toggle"
     :class="{ 'ui-toggle--on': modelValue, 'ui-toggle--disabled': disabled }"
-    @click="flip"
-  >
-    <span class="ui-toggle__thumb" />
-  </button>
+    @update:model-value="onUpdate"
+  />
 </template>
-
-<style scoped>
-.ui-toggle {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  width: 38px;
-  height: 22px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--surface-2);
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-  flex-shrink: 0;
-}
-.ui-toggle:hover:not(.ui-toggle--disabled) { border-color: var(--border-strong, var(--border)); }
-.ui-toggle__thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--surface);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
-  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease;
-}
-.ui-toggle--on { background: var(--accent); border-color: var(--accent); }
-.ui-toggle--on:hover:not(.ui-toggle--disabled) {
-  background: color-mix(in oklab, var(--accent) 88%, black);
-  border-color: color-mix(in oklab, var(--accent) 88%, black);
-}
-.ui-toggle--on .ui-toggle__thumb { transform: translateX(16px); background: #fff; }
-.ui-toggle--disabled { opacity: 0.5; cursor: not-allowed; }
-.ui-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-</style>

@@ -680,6 +680,14 @@ step Q3):
   whose alias applies while serving) are global; a `resolveId` hook that checks
   `this.environment.config.consumer === "client"` gives jsdom tests the browser build and the
   rest the SSR build.
+- **Quasar's controls, measured against the native ones** (*measured*, 2026-10-09):
+  QCheckbox/QToggle end with an empty focusable `<span class="no-outline">` (it takes a flex
+  gap); they render their hidden native `<input type="checkbox">` only with a `name`, and a
+  `<label>`'s click reaches the control only through it; their roots carry the utilities
+  `row`, `cursor-pointer` and `no-outline` (the last two `!important`); an icon name that doesn't
+  start with an SVG path command (`M`/`m` + digit) is a font ligature, rendered as text; QCheckbox
+  and QToggle flip on Enter as well as Space (a native checkbox doesn't on Enter); QChip shows a
+  check icon whenever its `selected` is set; QBadge marks itself `role="status"`.
 
 ---
 

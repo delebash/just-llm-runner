@@ -51,7 +51,12 @@ PostCSS step `quasarBaseLayer()` puts Quasar's whole stylesheet in the cascade l
 every rule of the kit and the apps outranks every Quasar rule, the way a page's CSS outranks the
 browser's defaults — whatever its specificity, whatever order the build loads the files in. The
 family's existing rules (`.ui-btn*` …) keep their look and their priorities among themselves;
-the theme only resets what Quasar sets that they don't. One exception: an `!important` inside a
+the theme only resets what Quasar sets that they don't. **How a theme rule is written** (settled in
+slice 3): a control's own look keeps the exact selector it had in `common/styles.css` (`.ui-tag`,
+`.ui-chip.is-selected`…), so the apps' rules that styled a control keep beating it as before;
+a rule that only resets something Quasar sets, or styles one of Quasar's inner elements, is
+wrapped in `:where(…)` — zero specificity, never competing with an app's rule, and still above
+Quasar, which sits in its layer. One exception: an `!important` inside a
 layer outranks an unlayered one, so the kit keeps away from Quasar's `!important` rules (the
 global disabled rule is removed by `dropQuasarDisabledRule()`; `UiButton` sets the native
 `disabled` instead of QBtn's `disable`, whose class carries one).
@@ -298,3 +303,45 @@ differ in each; behaviour on both builds — Enter and Space press, the tab orde
 button stays disabled and unfocusable, the download links are `<a href download>`, the cover
 picker opens a file chooser; JustVoice's smoke (every view, zero JS errors), JustWrite's e2e 7/7
 and docgen's e2e 20/20 on the real project.
+
+**Slice 3 — `UiCheckbox` on `QCheckbox`, `UiToggle` on `QToggle`.** What the side-by-side taught:
+
+- **The theme's selectors** (§2, "How a theme rule is written"): slices 1–2 used two-class rules to
+  beat Quasar; with Quasar in its layer that tied the apps' own two-class rules (JustVoice's
+  scoped style on its disabled Auto-paste checkbox lost to it — its text went a shade darker).
+  The sheet was rewritten: the kit's own look at its old selectors, resets in `:where()`.
+- **QCheckbox and QToggle end with an empty, focusable refocus `<span>`**: in the flow it took
+  the row's gap and widened every label-less control (8px on JustVoice's Personas table, so the
+  whole table moved); it is taken out of the flow.
+- **Quasar's utility class names meet the apps' own**: QToggle's root carries Quasar's `row`,
+  and docgen's global `.row` (a flex row with a 10px gap) now outranks Quasar's inside every
+  Quasar component — docgen's rule is `:where(:not([class*="q-"])).row` now (one class, as
+  before, never on Quasar's own elements). The other apps have no global rule named like a
+  Quasar utility (checked).
+- **Layered `!important` utilities**: `cursor-pointer` stays on a disabled QCheckbox/QToggle
+  and `no-outline` on their roots — nothing outside the layer outranks them. The disabled
+  cursor is restored inside the layer (`.disabled.cursor-pointer`, `dropQuasarDisabledRule()`,
+  which also drops the `!important` from Quasar's component-level disabled looks — QBtn,
+  QCheckbox, QRadio, QToggle, QField); the switch's focus ring goes round its track (the inner
+  element), as it went round the native button.
+- **A label must still reach the control**: a `<label>` round a switch or checkbox and its text
+  (the kit's warm-on-startup and Sync rows, docgen's Server settings, JustWrite's Relations legend)
+  passes a click to its first labelable descendant — the native button or checkbox before; now
+  the hidden native checkbox QToggle and QCheckbox render when given a `name` (the wrappers always
+  give one), whose click bubbles to Quasar's root and flips the control.
+- **The kit's own tick and an empty SVG**: QCheckbox's checked icon is the kit's tick path; the
+  unchecked one must still be an SVG path (`M0 0`) — a name that doesn't start with a path command
+  is read as a font ligature, rendered as text, and moved the box's baseline (the Personas
+  header row lost 1.2px).
+- **Kept as it was, found along the way:** docgen's Server settings passes `label="Require a
+  token even on localhost"` to UiToggle, which has no `label`; it was an unshown attribute on the
+  native button, so the switch never showed its text — QToggle would print it, so UiToggle keeps
+  a caller's `label` off the switch (recorded in docgen's TASKS).
+
+Checked: lint; the apps' unit tests (594, 183, 3); the 30 screens (JustWrite's Export 0.122 %: the
+checkbox row's background, 1/255 in one channel; the rest live values); 16 states — checkbox at
+rest, checked, hover, keyboard focus, disabled, dark, another accent, with a label; switch off,
+hover, keyboard focus, dark, on three apps — 0 pixels differ (docgen's two shots differ only in
+the test server's port); behaviour on both builds (13 checks the same): click, Space, Enter
+(the checkbox ignores it, the switch flips), select-all, a disabled checkbox stays, role and
+aria-checked, a click on the label's text and on the control inside a label.

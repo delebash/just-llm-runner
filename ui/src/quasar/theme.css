@@ -1,41 +1,40 @@
 /* SPDX-License-Identifier: MIT */
-/* The family's Quasar theme, part 2: the override sheet. What variables.scss can't reach, so the
-   Quasar components under the kit's controls take the family look (tokens.css + the appearance
-   engine's live variables) instead of Material's. Started from JustWrite's phone UI-library test
-   (docs/plans/2026-10-08-phone-ui-library-test.md in justwrite-app, its quasar/theme.css) and
-   re-keyed to the kit's .ui-* classes. One section per control, written with the control: a
-   control's whole look lives here, not in common/styles.css. The plan:
-   docs/plans/2026-10-09-kit-controls-on-quasar.md. Loaded by the kit's barrel after Quasar's own
-   CSS, so equal selectors win by order.
+/* The family's Quasar theme, part 2: the sheet that gives the Quasar components under the kit's
+   controls the family look (tokens.css + the appearance engine's live variables) instead of
+   Material's. Started from JustWrite's phone UI-library test
+   (docs/plans/2026-10-08-phone-ui-library-test.md in justwrite-app, its quasar/theme.css). The
+   plan: docs/plans/2026-10-09-kit-controls-on-quasar.md.
 
-   Dark mode: Quasar's Dark plugin stays off (./install.js), so every colour Quasar's light mode
-   sets on an element the kit uses is restated here from the tokens, which switch with
-   <html data-theme>. */
+   How it wins without fighting anyone (the plan's §2): Quasar's whole stylesheet sits in the
+   cascade layer `quasar` (./postcss.js, quasarBaseLayer()), so ANY rule here — unlayered —
+   outranks every Quasar rule, whatever its specificity. So:
+   - a control's own look keeps the exact selector it had in common/styles.css (`.ui-tag`,
+     `.ui-chip.is-selected`…), and the apps' rules that styled a control keep beating it as before;
+   - a rule that only resets something Quasar sets (a min-height, a position, an overlay) or
+     styles one of Quasar's own inner elements is wrapped in :where(…) — zero specificity, so it
+     never competes with an app's rule, and still beats Quasar's.
+
+   Dark mode: Quasar's Dark plugin stays off (./install.js); the colours come from the tokens,
+   which switch with <html data-theme>. */
 
 /* ── Quasar's Material defaults the family doesn't use ─────────────────── */
-/* In a built app the kit's CSS can load before Quasar's (JustVoice's build: the kit's chunk, then
-   Quasar's), so no rule here wins by order: each outranks Quasar's by specificity — two classes
-   against Quasar's one, or `html` in front of a one-class rule that applies to every Quasar
-   component, as these two do. */
 /* Quasar uppercases every button label (Material); the label-case knob decides instead. */
-html .q-btn { text-transform: var(--btn-text-transform, none); letter-spacing: var(--btn-letter-spacing, normal); }
+:where(.q-btn) { text-transform: var(--btn-text-transform, none); letter-spacing: var(--btn-letter-spacing, normal); }
 /* The hover/focus overlay Quasar paints over buttons, chips and items. */
-html .q-focus-helper { display: none; }
+:where(.q-focus-helper) { display: none; }
 
 /* ── Tag (UiTag on QBadge) ─────────────────────────────────────────────── */
-/* Every rule here is two classes: Quasar's own .q-badge rule is one, and in a built app the
-   kit's CSS can load before Quasar's, so order never decides. Borderless soft tint by default
-   (--tag-border-width: 0); a host that wants outlined pills (JustVoice) sets
-   --tag-border-width: 1px. An intent sets --ui-tag-bg / --ui-tag-ink / --ui-tag-border; a host
-   adds an intent of its own the same way (a one-class colour rule would lose to the two classes
-   below). With no --ui-tag-ink the colour is inherited, as before. */
-.q-badge.ui-tag {
-  gap: 4px; min-height: 0; padding: 2px 8px; vertical-align: baseline;
-  font: 600 11px/1.4 var(--font-ui, inherit); white-space: nowrap;
-  border-radius: var(--tag-radius, 4px);
+/* Borderless soft tint by default (--tag-border-width: 0); a host that wants outlined pills
+   (JustVoice) sets --tag-border-width: 1px → the border takes the intent's text colour. An intent
+   sets --ui-tag-bg / --ui-tag-ink (and --ui-tag-border); a host adds one the same way (JustVoice's
+   ui-tag--violet). With no --ui-tag-ink the colour is inherited, as before. */
+.ui-tag {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
+  font: 600 11px/1.4 var(--font-ui, inherit); border-radius: var(--tag-radius, 4px); white-space: nowrap;
   border: var(--tag-border-width, 0) solid var(--ui-tag-border, currentColor);
   background: var(--ui-tag-bg, transparent); color: var(--ui-tag-ink);
 }
+:where(.q-badge.ui-tag) { min-height: 0; vertical-align: baseline; }
 .ui-tag--primary   { --ui-tag-bg: var(--accent-soft); --ui-tag-ink: var(--accent-ink, var(--accent)); }
 .ui-tag--secondary { --ui-tag-bg: var(--surface-3, var(--surface-2)); --ui-tag-ink: var(--ink-2, var(--ink)); }
 .ui-tag--success   { --ui-tag-bg: var(--success-bg, var(--accent-soft)); --ui-tag-ink: var(--success-ink, var(--success, #3a7d63)); }
@@ -54,39 +53,87 @@ html .q-focus-helper { display: none; }
 .ui-tag__x:hover { opacity: 1; }
 
 /* ── Chip (UiChip on QChip) ────────────────────────────────────────────── */
-/* A selectable pill: outlined at rest, the accent when selected. Quasar's chip is a grey
-   Material chip 2em high with a 4px margin; all of that is restated. It replaces a native
-   <button>, so it keeps what a button had from the browser and the kit: the text colour of
-   its surroundings (the kit's button:not(.ui-btn) rule — the chip's own ink-2 never showed on
-   a button), no letter-spacing or text-transform of its surroundings, and the browser's own
-   focus ring (Quasar removes the outline). */
-.q-chip.ui-chip {
-  height: auto; max-width: none; margin: 0; gap: 4px; padding: 2px 10px; vertical-align: baseline;
-  font: 600 11px/18px var(--font-ui, inherit); letter-spacing: normal; white-space: nowrap;
-  border-radius: var(--chip-radius, 999px); border: 1px solid var(--border-strong, var(--border));
-  text-transform: none; background: transparent; color: inherit; cursor: pointer; text-decoration: none;
-  transition: background .12s, border-color .12s, color .12s;
-  /* not positioned, as the button wasn't: Quasar's position: relative (for its focus overlay and
-     ripple, both off) makes Chrome composite a chip painted after an animation on the page, and
-     composited text loses its sub-pixel smoothing (measured on JustVoice's Captures, 2026-10-09) */
-  position: static;
+/* A selectable pill: outlined at rest, the accent when selected. It replaces a native <button>,
+   so a pressable chip keeps what the button had: the text colour of its surroundings (the kit's
+   button:not(.ui-btn) rule outranked the chip's own ink-2 there; a link or plain chip — no
+   aria-pressed — never was a button and keeps ink-2), the browser's letter-spacing and
+   text-transform resets and its focus ring. Quasar's chip is a grey Material chip 2em high with
+   a 4px margin and position: relative; a positioned chip painted after an animation on the page
+   is composited and loses its sub-pixel text (RESEARCH, "The kit's controls on Quasar"). */
+.ui-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; font: 600 11px/18px var(--font-ui, inherit); border-radius: var(--chip-radius, 999px); border: 1px solid var(--border-strong, var(--border)); background: transparent; color: var(--ink-2, var(--ink)); cursor: pointer; white-space: nowrap; text-decoration: none; transition: background .12s, border-color .12s, color .12s; }
+:where(.ui-chip)[aria-pressed] { color: inherit; }
+:where(.q-chip.ui-chip) {
+  height: auto; max-width: none; margin: 0; position: static; vertical-align: baseline;
+  letter-spacing: normal; text-transform: none;
 }
-/* a link or plain pill (as="a" / "span") never was a button: it had the chip's own ink-2 */
-.q-chip.ui-chip:not([aria-pressed]) { color: var(--ink-2, var(--ink)); }
-.q-chip.ui-chip:focus-visible { outline: revert; box-shadow: none; }
-.q-chip.ui-chip:hover:not(.is-disabled):not(.is-selected) { border-color: var(--accent); color: var(--accent-ink, var(--accent)); }
-.q-chip.ui-chip.is-selected { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
-.q-chip.ui-chip.is-disabled { opacity: .55; cursor: not-allowed; }
+:where(.q-chip.ui-chip:focus-visible) { outline: revert; box-shadow: none; }
+.ui-chip:hover:not(.is-disabled):not(.is-selected) { border-color: var(--accent); color: var(--accent-ink, var(--accent)); }
+.ui-chip.is-selected { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
+.ui-chip.is-disabled { opacity: .55; cursor: not-allowed; }
 
 /* ── Button (UiButton on QBtn) ─────────────────────────────────────────── */
-/* The button's look stays common/styles.css's .ui-btn* (Quasar's stylesheet sits in its own
-   cascade layer, so those rules win wherever they set a property). Here only what QBtn's own
-   rules set that .ui-btn doesn't: its column direction and 2.5em minimum height, its middle
-   vertical-align, and its positioning — QBtn is position: relative with a shadow pseudo-element
-   and a z-index on its content, and a positioned or z-indexed button is composited after an
-   animation on the page, losing sub-pixel text (RESEARCH, "The kit's controls on Quasar"); the
-   native button it replaces was none of these. The icon/label gap moves to QBtn's content row,
-   where the icon and label now sit. */
-.q-btn.ui-btn { flex-direction: row; min-height: 0; vertical-align: baseline; position: static; }
-.q-btn.ui-btn::before { display: none; }
-.q-btn.ui-btn > .q-btn__content { gap: inherit; z-index: auto; transition: none; }
+/* The button's look stays common/styles.css's .ui-btn*. Here only what QBtn's own rules set that
+   .ui-btn doesn't: its column direction and 2.5em minimum height, its middle vertical-align, and
+   its positioning — QBtn is position: relative with a shadow pseudo-element and a z-index on its
+   content, and a positioned or z-indexed button is composited after an animation on the page,
+   losing sub-pixel text; the native button it replaces was none of these. The icon/label gap
+   moves to QBtn's content row, where the icon and label now sit. */
+:where(.q-btn.ui-btn) { flex-direction: row; min-height: 0; vertical-align: baseline; position: static; }
+:where(.q-btn.ui-btn)::before { display: none; }
+:where(.q-btn.ui-btn > .q-btn__content) { gap: inherit; z-index: auto; transition: none; }
+
+/* ── Checkbox (UiCheckbox on QCheckbox) ────────────────────────────────── */
+/* Today's 16px box with the kit's tick: QCheckbox's inner element is the box, its checked icon
+   the kit's tick path (UiCheckbox passes it); Quasar's 40px ripple circle, its hover halo and its
+   own animated box are not used. The row keeps the label 8px beside the box, and a caller's own
+   gap still means box-to-label (JustWrite's Export sets one inline). */
+.ui-checkbox { position: relative; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 13px; color: var(--ink); }
+:where(.q-checkbox.ui-checkbox) { vertical-align: baseline; }
+:where(.ui-checkbox) .q-checkbox__inner {
+  width: 16px; min-width: 16px; height: 16px; font-size: 16px; color: transparent;
+  display: inline-grid; place-items: center; flex: 0 0 auto;
+  border: 1px solid var(--border-strong, var(--border)); border-radius: 4px; background: var(--surface);
+  transition: background-color .12s, border-color .12s, color .12s, box-shadow .12s;
+}
+:where(.ui-checkbox .q-checkbox__inner)::before { display: none; }
+:where(.ui-checkbox .q-checkbox__icon-container) { position: static; }
+:where(.ui-checkbox .q-checkbox__icon) { font-size: 12px; color: inherit; }
+.ui-checkbox.is-checked .q-checkbox__inner { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
+.ui-checkbox:focus-visible .q-checkbox__inner { box-shadow: var(--focus-ring, 0 0 0 3px var(--accent-soft)); }
+.ui-checkbox.is-disabled { opacity: .55; cursor: not-allowed; }
+.ui-checkbox .q-checkbox__label { line-height: 1.4; }
+:where(.ui-checkbox .q-checkbox__label) { padding: 0; }
+/* QCheckbox and QToggle end with an empty, focusable refocus <span>; in the flow it takes a gap of
+   its own and widens every label-less control (measured: 8px on JustVoice's Personas table, 10px
+   on docgen's Server settings). Out of the flow it takes no room and still holds focus. */
+:where(.q-checkbox.ui-checkbox, .q-toggle.ui-toggle) > span.no-outline { position: absolute; }
+
+/* ── Switch (UiToggle on QToggle) ──────────────────────────────────────── */
+/* Today's 38 × 22 track with a 16px thumb: QToggle's inner element is the track, its thumb the
+   thumb; Quasar's own track line, its shadowed circle and its hover halo are not used. */
+.ui-toggle { flex-shrink: 0; cursor: pointer; }
+:where(.q-toggle.ui-toggle) { vertical-align: baseline; }
+.ui-toggle .q-toggle__inner {
+  position: relative; width: 38px; min-width: 38px; height: 22px; padding: 0; font-size: 16px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+:where(.ui-toggle) .q-toggle__track,
+:where(.ui-toggle .q-toggle__thumb)::before,
+:where(.ui-toggle .q-toggle__thumb)::after { display: none; }
+.ui-toggle .q-toggle__thumb {
+  position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s ease;
+}
+.ui-toggle:hover:not(.ui-toggle--disabled) .q-toggle__inner { border-color: var(--border-strong, var(--border)); }
+.ui-toggle--on .q-toggle__inner { background: var(--accent); border-color: var(--accent); }
+.ui-toggle--on:hover:not(.ui-toggle--disabled) .q-toggle__inner {
+  background: color-mix(in oklab, var(--accent) 88%, black);
+  border-color: color-mix(in oklab, var(--accent) 88%, black);
+}
+.ui-toggle--on .q-toggle__thumb { left: 2px; transform: translateX(16px); background: #fff; }
+.ui-toggle--disabled { opacity: 0.5; cursor: not-allowed; }
+/* the ring goes round the track, as it went round the native button: QToggle's root carries Quasar's
+   no-outline (outline: 0 !important, which wins from inside its layer) */
+.ui-toggle:focus-visible .q-toggle__inner { outline: 2px solid var(--accent); outline-offset: 2px; }

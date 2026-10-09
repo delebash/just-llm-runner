@@ -106,20 +106,8 @@ button:not(.ui-btn) { color: inherit; }
 .ui-w-edit  { max-width: var(--w-edit, 880px); }
 .ui-w-full  { max-width: none; }
 
-/* ── Checkbox ──────────────────────────────────────────────── */
-/* position: relative ANCHORS the visually-hidden input below to its own label.
-   Without it, the position:absolute input is anchored to a distant ancestor and
-   strands far from its visible box when the list is scrolled; clicking then
-   focuses that stranded input and the browser scrolls the container to reveal it
-   — a large layout lurch (#67, measured ~1263px). Keep the parent positioned. */
-.ui-checkbox { position: relative; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 13px; color: var(--ink); }
-.ui-checkbox-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.ui-checkbox-box { flex: 0 0 auto; width: 16px; height: 16px; display: inline-grid; place-items: center; border: 1px solid var(--border-strong, var(--border)); border-radius: 4px; background: var(--surface); color: transparent; transition: background-color .12s, border-color .12s, color .12s, box-shadow .12s; }
-.ui-checkbox-tick { width: 12px; height: 12px; }
-.ui-checkbox.is-checked .ui-checkbox-box { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
-.ui-checkbox-input:focus-visible + .ui-checkbox-box { box-shadow: var(--focus-ring, 0 0 0 3px var(--accent-soft)); }
-.ui-checkbox.is-disabled { opacity: .55; cursor: not-allowed; }
-.ui-checkbox-label { line-height: 1.4; }
+/* Checkbox: its look is the kit's Quasar theme (../quasar/theme.css) since it moved onto
+   QCheckbox (docs/plans/2026-10-09-kit-controls-on-quasar.md). */
 
 /* ── Field (labelled form row) ─────────────────────────────── */
 /* Global (not scoped) so raw .ui-field markup works alongside <UiField>. */

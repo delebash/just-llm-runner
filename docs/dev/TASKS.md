@@ -46,7 +46,13 @@ STATE:  DECIDED 2026-10-09 — the user (a JustVoice session, after looking at s
         server-owned SQLite, use the kit first, and keep NOTICE" (SPDX out). Question 2: "I'd delete them.
         Git keeps them … Any deviation that's still open moves to a short list at the end of the doc."
         Question 3: "I'd keep them" (the section numbers, gaps and all).
-WHY:    Claude Code's docs (read 2026-10-09; RESEARCH §2): a CLAUDE.md under 200 lines; an @import loads
+        Then, on the three items left open, as shown: "1. The SPDX headers already in files … Remove
+        them, or leave them? I'd leave them" · "2. The kit's CLAUDE.md is stale … I'd rewrite it for
+        the JavaScript kit as its own change" · "3. Open deviation: the apps keep views/ and styles/,
+        while the template uses Quasar's pages/ and layouts/. Nothing is decided yet." — the user:
+        "your rec go" (1 and 2), and on 3: "we stick with quasar layout", then "whatever the layout
+        that the quassar cli crete for new project is what we use when using quasar".
+WHY:    Claude Code's docs (read 2026-10-09; RESEARCH §6): a CLAUDE.md under 200 lines; an @import loads
         a file every session, a "read X" sentence only if Claude opens it; CLAUDE.md is advisory, a check
         is not. The standard still described shapes no app runs (Tauri/Python, Electron + Vite), and the
         family rules lived only in JustVoice's CLAUDE.md.
@@ -62,13 +68,18 @@ BUILT:  2026-10-09 — `docs/family-rules.md` (21 lines, four rules); imported b
         Electron + Vite kind and its checks deleted (0 violations, 23 advisory — as before).
         `target-tree.md` and `family-structure-audit.md` → `docs/plans/archive/`. RESEARCH §6.
         Q3's wording (the other session's request) carried into §3, §4 and §Q.4.
-OPEN:   the user runs /doctor prompt-audit in each repo. Not decided: the SPDX headers already in
-        files (520 JustVoice · 108 JustWrite · 89 docgen · 373 kit) — the go covered the rule, not
-        the headers. Found, not in this go: the kit's CLAUDE.md still describes the Python half
-        (`llm_runner/`, pytest, PyInstaller), which no longer exists; and the guard no longer
-        asserts §14's renderer lanes, the door pins or the launcher name for any app (those
-        checks ran only for the Electron + Vite kind).
-GO:     given 2026-10-09 — "your rec all go".
+        The SPDX headers already in files stay (nothing adds new ones). The kit's CLAUDE.md is
+        rewritten for the JavaScript kit (2026-10-09).
+OPEN:   the user runs /doctor prompt-audit in each repo. The apps move to the layout Quasar's CLI
+        creates for a new project — the template's (`src/pages/`, `src/layouts/`, `src/css/`) in
+        place of `views/` (JW 32 files, JV 29, docgen 9) and `styles/` (2 each); needs its own plan
+        and go (another session is working in JustWrite's screens). Found, not in this go: the
+        kit's `README.md` ("What's here (Python core)") and `server/README.md` "Check it" (a route
+        diff against a Python server, scripts that no longer exist) are stale; the guard no longer
+        asserts §14's renderer lanes, the door pins or the launcher name for any app (those checks
+        ran only for the Electron + Vite kind).
+GO:     given 2026-10-09 — "your rec all go"; then "your rec go" (the headers stay, the kit's
+        CLAUDE.md rewritten). The layout move: decided, go needed.
 
 ## Every family app moves to Quasar, built by one set of framework rules [2026-10-08]
 STATE:  DECIDED 2026-10-08 — the user: "all apps will be converted to quasar, we will use the same

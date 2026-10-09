@@ -1,96 +1,89 @@
 # just-llm-runner
 
-The shared **local-LLM runner core** for **JustWrite** and **JustVoice**: detects hardware,
-manages and recommends GGUF models, downloads the right prebuilt llama.cpp (CUDA runtime bundled,
-no toolkit install) and spawns `llama-server`. The shared **Vue UI kit** lives here too, in `ui/`
-(`@delebash/llm-ui`).
+The family's shared kit: the local-LLM runner (detects hardware, picks and downloads GGUF models
+and the right prebuilt llama.cpp, spawns `llama-server`), the shared AI stack, the platform
+pieces every app server uses, and the desktop shell — all in `server/` (`@delebash/llm-runner`,
+plain JavaScript). The Vue UI kit is `ui/` (`@delebash/llm-ui`, on Quasar). `template/` is the
+reference Quasar app every family app starts from.
 
-**Two languages until JustVoice moves** (the family's move to Electron and a Node server,
-JustVoice's `docs/plans/2026-10-07-electron-node-plan.md`): `llm_runner/` (Python) and its
-JavaScript twin `server/` (`@delebash/llm-runner` — the stack, the runner, the platform pieces
-and the desktop shell `runDesktopApp`). A kit server change lands in both. Read
-`server/README.md` and the build sheet `docs/plans/2026-10-07-kit-in-javascript.md` before
-touching `server/`.
-
-**Internal library — never published to PyPI or npm.** A Tauri + Python app consumes
-`llm_runner` as a git dependency (pinned tag) or an editable install, frozen into its bundle
-(PyInstaller → Tauri sidecar); an Electron app consumes `server/` as
-`"@delebash/llm-runner": "file:../just-llm-runner/server"`, packed by electron-builder.
+**Internal — never published.** Apps consume `server/` as
+`"@delebash/llm-runner": "file:../just-llm-runner/server"` and `ui/` as a source alias in their
+`quasar.config.js` (app-structure §3) — no build or publish step.
 
 The family rules every family repo follows, this one included: @docs/family-rules.md
 
-> **A change here lands in BOTH apps.** There is no per-app copy of any of this — that is the
-> entire point of the repo. Before changing a Python contract or a `Ui*` primitive, consider what
-> it does to JustWrite *and* JustVoice.
+> **A change here lands in EVERY app** (JustWrite, JustVoice, docgen). There is no per-app copy
+> of any of this — that is the point of the repo.
 
 ## Commands
 
-The JavaScript half: `cd server && npm test` (vitest on Electron's Node 24) and `npm run lint`
-— the route diff and seed parity are in `server/README.md` "Check it".
-
-This repo has **no venv of its own** — `llm_runner` is editable-installed into JustWrite's venv,
-so its suite runs on that interpreter:
-
 ```bash
-cd E:/Dev/Web/just-llm-runner
-../justwrite-app/.venv/Scripts/python.exe -m pytest -q      # 764 tests (collected 2026-08-04), ~50s
-../justwrite-app/.venv/Scripts/python.exe -m ruff check .   # lint (line-length 100, py310)
-python scripts/check-clean-install.py                       # ~60s — after ANY dep, __init__, or install_llm change
-../justwrite-app/.venv/Scripts/python.exe scripts/check-consumers.py  # after ANY shared-export change
+cd server && npm test          # vitest on Electron's own Node 24 (scripts/node24.js), never PATH's node
+cd server && npm run lint      # Biome: src, tests, scripts
+cd ui && npm run lint          # Biome: src
+cd ui && npm run check:pickers # fails a hand-coded copy of a shared picker
+node scripts/check-family.js   # the family guard: the three apps + the template against the kit
 ```
 
-**The suite runs where every host dependency already exists, so it is blind to a whole class
-of defect.** `check-clean-install.py` is the counterpart: a throwaway venv, the package with
-ONLY its declared dependencies, three checks — every module imports; the bare
-`install_llm(app, engine=…, session_factory=…, data_dir=…)` call yields a working stack
-(the minimal contract); the storage-free core survives with SQLAlchemy removed. All three
-watched failing. `check-consumers.py` closes the other blind spot: it resolves every
-`llm_runner` symbol the sibling apps import, so deleting a shared export fails HERE instead
-of silently breaking a consumer whose tests aren't running — which is exactly how JustVoice
-broke for weeks (`LLMRolesSettings`, deleted by `7232214`).
+**After any change to a shared export, build and test every app that uses it** — nothing here
+checks the consumers. `tests/process_job.test.js` proves the Windows kill-on-close job for real
+only with `KIT_REAL_SPAWN=1`; `tests/realrouter_smoke.test.js` needs `JW_REALROUTER=1` and a real
+engine.
 
-`python -m pytest` with a bare interpreter picks up whatever is first on PATH — on this box a
-stock `F:\Python312` with none of the dependencies — and dies at collection with
-`No module named 'google'`. That reads as broken config; it is a missing install.
+## What bites
 
-**Known-bad on Windows:** `tests/test_hardware.py::test_pci_gpus_linux_lspci_name_match` fails —
-it exercises a Linux `lspci` path. One failure is expected here; a second is not.
-
-The `ui/` kit has its own `package.json` and is consumed by both apps through a Vite **source**
-alias, not a build — there is no publish step to run.
-
-## Invariants that bite
-
-- **Dependencies stay light — no ML.** No torch, no transformers. The JustWrite sidecar bundle size depends on it; the three vendor SDKs (openai, anthropic, google-genai) were an explicit ruling, not a precedent for adding more.
-- **`pyproject.toml` must list what the code imports — and only `check-clean-install.py` can tell you.** `sqlalchemy` was missing for the repo's whole life. Nothing caught it because nothing could: both host apps declare it themselves, so the import always resolved by coincidence of the HOST's dependency list, and the suite runs on JustWrite's venv. Measured cost when it was finally tested in a clean venv: `llm_runner.llm` and `llm_runner.platform` both failed to import, taking **11,773 of 19,720 lines** with them. A library's real environment is a fresh app, not its biggest consumer.
-- **A package `__init__` must never eagerly import the storage layer.** `llm/db.py` and `platform/data_api.py` are the ONLY files here that touch SQLAlchemy, but the `__init__`s pulled them in on the way to everything else — so one dependency made the adapters, dispatch, registry, tiers and schema unimportable, none of which touch storage. Both `__init__`s resolve exports lazily via PEP 562 `__getattr__` now, and check 2 of the clean-install script fails if that regresses.
-- **`install_llm` is THE standard, and its minimal contract is enforced.** `install_llm(app, engine=…, session_factory=…, data_dir=…)` is a complete call — `feature_catalog`/`feature_prompts` default to empty because an app with no per-action features is a first-class consumer, and nothing in the family exercises that shape, so only the checks protect it (`tests/test_install_llm.py` + clean-install check 3). The runner-router-alone subset and the storage-free library mode are documented in README "Consume it"; neither gets helper machinery — that way lies the second store backend that was explicitly ruled out (2026-08-01).
-- **Never hand `install_llm` a single-shared-connection test DB.** It starts the catalog-derive-backfill daemon thread, which opens a DB session at boot; on in-memory SQLite + StaticPool that thread's transaction interleaves with a seed pass on the ONE connection and silently rolls its inserts back — measured 2026-08-01: 0 of 11 seeded providers on one run, 2 of 11 on the next, no error either time. File-backed SQLite in tests; `test_install_llm.py`'s docstring records the incident.
-- **An unwired catalog is not an empty one.** `catalog_fn` defaults to returning `[]`, which made "no host wired a catalog" and "your catalog is empty" indistinguishable at `/v1/llm-runner/models`. JustVoice mounted the router and sat in the first state for months unnoticed. The response now carries `catalogWired` and the server logs the unwired case once.
-- **Always pass `cache_root` / `data_dir`.** With neither, engine + GGUFs land in `~/.cache/just-llm-runner`, outside the host's data root — so uninstalling the app strands tens of GB and a data-dir backup silently misses the models.
-- **THE CACHE MAY BE SHARED; WHAT AN APP *GENERATES* NEVER IS.** `cache_root` holds `hf/` weights and `llamacpp/<build>/` binaries — content-addressed, so two apps fetching the same thing fetch the same bytes, and a second copy buys nothing (measured 2026-08-03: the same `unsloth/gemma-4-26B-A4B-it-qat-GGUF @ UD-Q4_K_XL` in two apps' caches, and on the author's box JustWrite's cache is **257 GB**). `runtime_root` holds `models.ini` and the per-spawn `logs/`, which each app RENDERS FROM ITS OWN CATALOGUE — share those and each app overwrites the other's preset file, then the next router bounce re-reads a preset describing somebody else's models. `runtime_root` defaults to the legacy in-cache location, so an app with its own cache is byte-identical to before and needs no migration. `install_llm(product=…)` names the app in a family registry (`%LOCALAPPDATA%\just-ai\caches.json`) so the NEXT app's Quick Setup can offer to share; `PUT /v1/ai/engine-cache` records the choice and re-points a live service when it is idle (nothing on disk ever moves, so the answer is reversible). **`JUST_AI_HOME` exists because that registry is machine-wide and any consumer's pytest run can reach it** — three repos' suites wrote `pytest-of-<user>/…` paths into the author's real one within minutes of it shipping, so `register()` is a no-op under pytest unless that variable is set.
-- **THE ROUTER PORT IS ALLOCATED, AND NOTHING MAY ASSUME IT.** `DEFAULT_PORT = 8080` is now only where `find_free_port` starts looking; the spawn binds a port nobody holds and the live one lives on the handle (`RunnerService.router_url()`). Every family app used to hardcode 8080, so on a box running two of them the second app's llama-server could not bind — **and the spawn's `/health` probe passed anyway, because that port was answered by the FIRST app's router.** JustWrite's `POST /models/load 'gemma-4-26b-a4b-qat'` reached just_ai_i18n_docgen's engine, which knows that model under another id, and 404'd in 31 ms; it reads exactly like a corrupt install (measured 2026-08-03 — the user was told to reset the DB and re-download 13 GB, and needed neither). **Health-by-port is not identity.** The consequence for the llm/ side: a `local-llamacpp` provider's stored `baseUrl` is a GUESS, so `openai_compat._api_base` resolves per request through the `set_local_runner_base_url` seam and **refuses to fall back to the configured port when the router is down** — falling back is the original defect, because :8080 may well answer as somebody else's engine. `openai-compat` (LM Studio, vLLM) is never touched: that URL is the user's choice.
-- **`schema.py` is a camelCase pydantic contract** shared with two apps' front ends. Renaming a field is a breaking wire change in both.
-- **The engine defaults are DATA, not code branches** — pinned llama.cpp build, per-platform binary assets, flag presets, the VRAM-fit knobs live as `runner/config.py` module constants that a host seeds into its DB (user-editable from there); the model-catalog half is host-owned. Prefer a config/DB row over a code branch. (`runner-manifest.json` carried this until A7 — the file is GONE; a doc citing it is stale.)
-- **Launch flags resolve in four tiers, strongest last** (full statement in `README.md`): our estimate is admission-only and never emitted · an untuned model omits `n-gpu-layers`/`n-cpu-moe` so llama-server's own `--fit` places tensors, but **`ctx-size` is ALWAYS emitted** because context is a product decision · user-set values render exactly · measured tunes win, and the auto-tune sweep saves only a STRICT winner beyond the 5% tie band, so a tie never overwrites the baseline.
-- **`ui/` IS `@delebash/llm-ui`.** Plain-JS Vue SFCs; `peerDependencies` must list everything the kit imports — `vue-router` and `@floating-ui/dom` were missing until 2026-08-01 and resolved only because both apps happened to carry them (the latter transitively, via reka-ui). Same defect shape as the SQLAlchemy one: a dependency satisfied by the consumer's luck rather than declared. The kit owns the design contract: one `intent` prop encodes role AND style — never add `severity`/`outlined`/`text`. A capability gap gets solved here so both apps get it, never forked into an app.
-- **Seeded catalog rows are claims about the world.** `scripts/seed-facts-audit.py` is a stdlib tripwire that checks each row against the HF tree — repo exists, seeded license matches the repo tag AND its `base_model`'s tag, quant and MTP-draft files present. It needs network and is not CI-gated, so run it at any seed change.
-- **Detection proposes, never dictates.** The box's class is `vram<GB>|ram<GB>`, overridable via `classKeyOverride` on `/v1/ai/engine-config`.
+- **Dependencies stay light — no ML packages.** The three vendor SDKs (openai, anthropic,
+  google-genai) were an explicit ruling, not a precedent for adding more.
+- **`ui/package.json` `peerDependencies` must list everything the kit imports.** A missing peer
+  still resolves through the app's own `node_modules` by luck (`quasar` was missing until
+  2026-10-09). The kit's controls take one `intent` prop for role AND style — never add
+  `severity` / `outlined` / `text`.
+- **A module with a `<name>.phone.js` twin** (`runner/lifecycle.phone.js`) is swapped for it in
+  the phone's worker bundle (app-structure §Q.7) — change both.
+- **The desktop shell is `server/src/shell/`** (`runDesktopApp`, the preload, the data-root
+  ladder). A new shell command goes in main's `COMMANDS` and the preload's list, never in an app.
+- **An unwired catalog is not an empty one.** The runner's models response carries
+  `catalogWired`; JustVoice once sat for months on "no host wired a catalog" reading as "empty".
+- **Always pass `dataDir`** to `installLlm`. Without it the engine and models land in
+  `~/.cache/just-llm-runner` (or `LLM_RUNNER_CACHE`), outside the app's data folder — an
+  uninstall strands tens of GB and a backup misses them.
+- **The cache may be shared; what an app generates never is.** The cache root holds weights and
+  llama.cpp builds (content-addressed — two apps can share them); the runtime root holds
+  `models.ini` and spawn logs, which each app renders from its own catalog. The family registry
+  (`%LOCALAPPDATA%\just-ai\caches.json`) is machine-wide, so it ignores writes inside a vitest
+  run unless `JUST_AI_HOME` points somewhere safe.
+- **The router port is allocated — nothing may assume 8080.** `findFreePort` starts there; the
+  live URL is the service's `routerUrl()`. Health-by-port is not identity: a second app's probe
+  once passed against the FIRST app's engine. A `local-llamacpp` provider's stored `baseUrl` is
+  a guess — `openai_compat.js` resolves it per request through `setLocalRunnerBaseUrl` and never
+  falls back to the configured port when the router is down.
+- **The wire is camelCase** (`runner/schema.js` and the `llm/` routes): renaming a field breaks
+  every app's screens.
+- **Engine defaults are DATA** — the pinned llama.cpp build, binary assets, flag presets and fit
+  knobs are `runner/config.js` constants an app seeds into its database (editable there). Prefer
+  a row over a code branch.
+- **Launch flags resolve in four tiers** (`README.md`, "the 4-tier doctrine"): our estimate never
+  reaches the launch; an untuned model leaves GPU placement to llama-server's own `--fit`, but
+  `ctx-size` is always emitted; user values render exactly; measured tunes win, and auto-tune
+  saves only a strict winner beyond the 5 % tie band.
+- **Detection proposes, never dictates.** The box's class is `vram<GB>|ram<GB>`, overridable via
+  `classKeyOverride` on `/v1/ai/engine-config`.
 
 ## Where to look
 
-**Before researching anything — reading code to answer a question, measuring, briefing an agent — read the subject's section of `docs/dev/RESEARCH.md`** (what is already known about the shared stack, with the proof; the family rule, 2026-10-04, app-structure §13). Research isn't done until its facts land there.
+**Before researching anything — reading code to answer a question, measuring, briefing an agent —
+read the subject's section of `docs/dev/RESEARCH.md`** (the family rule, 2026-10-04, app-structure
+§13). Research isn't done until its facts land there.
 
 | For | Read |
 |---|---|
-| **THE family app structure — every app** | `docs/app-structure.md` (ruled 2026-08-02; §Q is the layout, `template/` the reference app; `docs/family-rules.md` holds the rules every repo imports) |
-| The kit in JavaScript (`server/`) | `server/README.md` · the build sheet `docs/plans/2026-10-07-kit-in-javascript.md` |
-| What this is, how flags derive, what each module does | `README.md` (dense and current) |
-| Open work — THE live tracker for this repo (kit + shared server) | `docs/dev/TASKS.md`; unscheduled ideas in `docs/dev/IDEAS.md` |
-| Model verdicts, licensing laws, measured serving numbers (distilled) | `docs/dev/model-research.md` · `docs/dev/serving-design.md` |
-| Per-item ledger detail (§A–J history + evidence) | `docs/plans/archive/2026-07-06-outstanding-master-plan.md` (history; its open tail was extracted to the tracker 2026-08-04) |
-| The current routing/preset model | `docs/feature-model-system.md` (one-source: an action points at ONE engine preset that owns the model and every tunable; §0 carries the why — the rewrite plan itself is archived) |
-| App-side open work | `../justwrite-app/docs/dev/TASKS.md` (JW) · `../JustVioce/docs/dev/TASKS.md` (JV) |
-| Per-task history and evidence | `docs/plans/*` — history unless a doc says otherwise; `archive/2026-06-28-MASTER-PLAN.md` is fully historical |
+| **THE family app structure — every app** | `docs/app-structure.md` (§Q is the layout; `template/` the reference app) |
+| Installing the stack in an app | `docs/dev/install-runbook.md` · app-structure §8 · `server/README.md` "Consume it" |
+| How launch flags derive | `README.md` "the 4-tier doctrine" |
+| Open work — the tracker for this repo (kit + shared server) | `docs/dev/TASKS.md`; unscheduled ideas in `docs/dev/IDEAS.md` |
+| Model verdicts, licensing, measured serving numbers | `docs/dev/model-research.md` · `docs/dev/serving-design.md` |
+| The routing/preset model | `docs/feature-model-system.md` |
+| App-side open work | `../justwrite-app/docs/dev/TASKS.md` · `../JustVioce/docs/dev/TASKS.md` · `../just_ai_i18n_docgen/docs/dev/TASKS.md` |
+| Per-task history and evidence | `docs/plans/*`; closed history in `docs/plans/archive/` |
 
 Read branch and working-tree state from git, never from a doc.

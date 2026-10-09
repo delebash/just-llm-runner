@@ -607,10 +607,12 @@
 /* The layout fills the window and never scrolls it — each page owns its scroller. Fixed and
    clipped, it is the layer Chrome paints the whole app in, its fixed overlays included, so their
    text keeps its sub-pixel smoothing (with the document as the scroller a fixed overlay became a
-   layer of its own, grey-smoothed — measured on JustWrite, 2026-10-09). QLayout's inline min-height
+   layer of its own, grey-smoothed — measured on JustWrite, 2026-10-09). Only an opaque layer gets
+   sub-pixel text, so the root paints the page colour (an app's own root class may paint another —
+   JustVoice's text went grey on a transparent one). QLayout's inline min-height
    is the window's height in unzoomed pixels, which the UI zoom (common/services/appearance.js)
    makes taller than the window; !important is the one way past an inline style. */
-:where(#q-app > .q-layout) { position: fixed; inset: 0; overflow: hidden; min-height: 0 !important; }
+:where(#q-app > .q-layout) { position: fixed; inset: 0; overflow: hidden; min-height: 0 !important; background: var(--bg); }
 /* The page container fills the layout, Quasar's header and drawer offsets (its inline padding)
    inside that height, so a page rooted in <q-page :style-fn="pageFill"> (./page.js) is exactly the
    height under the header at any UI zoom. */

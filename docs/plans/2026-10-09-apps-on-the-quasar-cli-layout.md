@@ -244,3 +244,32 @@ no book (`/`, `/welcome`, `/ai`, `/help`, `/sync`, `/chapters` → welcome) — 
 redirects; the connection-error screen (the same but the port in its URL) and its way back to the
 page; the phone build at 390px — the page full width, the ☰ opening Quasar's drawer over a
 backdrop, closing on navigation.
+
+**JustVoice** — what the side-by-side taught:
+
+- **The layout is imported, not lazy-loaded** (both apps now): lazily, its components' styles (the
+  kit TitleBar's scoped rule) moved into a later chunk and won ties with JustVoice's own (the title
+  bar's gap went from 16px to 6px); every screen needs the layout anyway.
+- **The layout's root is opaque** (the kit's rule paints `var(--bg)`): fixed but transparent, it was
+  a layer Chrome draws grey-smoothed text on — all of JustVoice's text changed (JustWrite's root
+  paints its own colour). Chrome's overlays now paint into it, so the help drawer's and the AI-tasks
+  panel's text is sub-pixel smoothed where it was grey before — as JustWrite's always was. Listed.
+- **Pages flow in the content scroller** (`pageFlow`): JustVoice's area scroller holds the boot
+  banner, the page's lede and the page, so each page's own root became its q-page (classes kept,
+  `.jv-fill` still fills) with no height of its own.
+- **The rail is content-sized**: QDrawer takes pixels, so the layout measures the rail's computed
+  width (`width: max-content`; a ResizeObserver follows locale and kind changes) — layout pixels, the
+  unit the drawer's width is applied in under the UI zoom.
+- **Lines** is two files: `components/LinesBoard.vue` (Studio embeds it) and `pages/LinesPage.vue`.
+  The Settings sections, the import modal and a mock piece are components; the view helpers and their
+  tests are `services/`; the mocks are `pages/mock/`, `components/mock/`, `services/mock/` and
+  `router/mockRoutes.js`. The dictation window is `/dictate`, the connection-error page `/offline`.
+- **Left as it is:** at a UI zoom other than 100% the content sits up to a pixel off where it was —
+  Quasar pads the page container by the header's height in whole pixels (`offsetHeight`), and the
+  title bar's height is fractional there (at 100% it is a whole 73px: nothing moves).
+
+Checked: lint; unit 183; build:spa; the smoke gate (every view, zero JS errors; the shell check);
+the ten screens against the pre-port build (live values and ≤ 8/255 only); the states (zoom 0.9 and
+1.15, dark, the scrolled Voices list and its sticky header, keep-alive across a navigation, the help
+drawer and the AI-tasks panel, 1024 and 1920 windows) — the same but the listed two; the dictation
+window; the connection-error page and its way back.

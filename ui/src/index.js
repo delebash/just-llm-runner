@@ -32,7 +32,7 @@ export { useAiTasksNav } from "./composables/useAiTasksNav.js";
 
 // shared general primitives + shells + services — the future @delebash/ui
 // (housed in ./common for now): Ui* primitives, Icon/Breadcrumb, dialog/tooltip,
-// the Help system, Toast, EmptyState, ConnectionError, the serverApi transport,
+// the Help system, the toasts, EmptyState, ConnectionError, the serverApi transport,
 // and the appearance engine. Re-exporting also loads common/styles.css.
 export * from "./common/index.js";
 // The family's Quasar theme (./quasar/): the override sheet loads after common/styles.css, the

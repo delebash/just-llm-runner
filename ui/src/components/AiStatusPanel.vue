@@ -52,12 +52,12 @@ function settledDurationMs(t) {
 // Esc + click-outside dismissal comes from the shared composable (2026-07-19 —
 // this component used to carry its own near-identical copy; the toggle and
 // portal exemptions now live in ONE place). The panel needs one extra
-// exemption of its own: sonner toasts — the View action on a completion toast
-// calls openPanel, and without this the same click would bubble here and close
-// the panel it just opened.
+// exemption of its own: the toasts (Quasar's Notify) — the View action on a
+// completion toast calls openPanel, and without this the same click would bubble
+// here and close the panel it just opened.
 const panelEl = ref(null);
 usePanelDismiss(() => tasks.panelOpen, panelEl, () => tasks.closePanel(), {
-  exempt: ["[data-sonner-toast]", "[data-sonner-toaster]"],
+  exempt: [".q-notification", ".q-notifications"],
 });
 
 function togglePreview(id) {

@@ -58,8 +58,7 @@ export { configureHelp, openHelp, closeHelp, toggleHelp, helpState, helpConfig }
 export { makeDocsHelpAdapter } from "./services/helpDocs.js";
 export { renderHelpMarkdown, slugifyHeading } from "./services/helpMarkdown.js";
 
-// shared toast host + imperative bridge (vue-sonner under the hood)
-export { default as Toast } from "./components/Toast.vue";
+// shared toasts — the imperative bridge (Quasar's Notify under the hood)
 export { pushToast, clearToasts } from "./services/toastBridge.js";
 
 // shared external-link opener — kit anchors route clicks through openExternal;

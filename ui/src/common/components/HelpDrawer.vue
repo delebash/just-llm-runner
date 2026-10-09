@@ -7,21 +7,20 @@
   navigating the app. The "Open full docs" / "Open on the web" footer buttons
   appear only when the host wired onOpenFull / onOpenWeb via configureHelp().
   App-agnostic; token-driven; supersedes the per-app *HelpDrawer.vue forks.
+
+  Quasar's QDialog underneath (the kit's controls on Quasar —
+  docs/plans/2026-10-09-kit-controls-on-quasar.md, slice 7), as AppModal: its root is the
+  overlay (.help-drawer-overlay) with the focus trap, Esc and the outside click; the drawer
+  is placed and drawn here as before; the overlay's look is the kit's theme
+  (../../quasar/theme.css, "Modal").
 -->
 <script setup>
 import { computed, watch, nextTick, ref } from "vue";
-import {
-  DialogRoot,
-  DialogPortal,
-  DialogOverlay,
-  DialogContent,
-  DialogTitle,
-  DialogClose,
-} from "reka-ui";
+import { QDialog } from "quasar";
+import { wrapTab } from "../composables/useTabWrap.js";
 import Icon from "./Icon.vue";
 import UiButton from "./UiButton.vue";
 import { helpState, helpConfig, openHelp, closeHelp } from "../services/help.js";
-import { PANEL_TOGGLE_ATTR } from "../composables/usePanelDismiss.js";
 import { renderHelpMarkdown } from "../services/helpMarkdown.js";
 import { openExternal } from "../services/external.js";
 
@@ -40,6 +39,7 @@ watch(slug, async (s) => { rawDoc.value = s ? await helpConfig.loadDoc(s) : null
 const renderedHtml = computed(() => renderHelpMarkdown(rawDoc.value));
 
 const contentEl = ref(null);
+const drawerEl = ref(null);
 
 // Scroll to the named anchor when the drawer opens with one (or when the
 // slug/anchor changes while open). Falls back to scroll-to-top otherwise.
@@ -78,83 +78,68 @@ function onContentClick(e) {
   }
 }
 
-// Reka already gives this drawer Esc + outside-click dismissal (DialogRoot /
-// DialogContent), so it does NOT use usePanelDismiss — one dismissal
-// mechanism, not two. The one thing Reka can't know about is a toggle trigger:
-// without this guard, clicking an open drawer's own "?" would let Reka close it
-// on pointerdown and the trigger's click would immediately re-open it, so the
-// toggle would look dead. Same exemption the shared composable makes, expressed
-// in Reka's own hook (2026-07-19).
-function onPointerDownOutside(e) {
-  // Reka wraps the real pointer event: the CustomEvent's own target is the
-  // dialog content, the click target lives in detail.originalEvent.
-  const target = e.detail?.originalEvent?.target || e.target;
-  if (target?.closest?.(PANEL_TOGGLE_ATTR)) e.preventDefault();
-}
+// QDialog gives this drawer Esc + outside-click dismissal, so it does NOT use
+// usePanelDismiss — one dismissal mechanism, not two. Its backdrop covers the page,
+// the drawer's own "?" trigger included, so a click there closes the drawer and
+// doesn't reach the trigger (Reka's pointer-down-outside needed a guard for the
+// trigger's click re-opening it).
 
 function openFull() { helpConfig.onOpenFull?.(slug.value); }
 function openWeb() { helpConfig.onOpenWeb?.(slug.value); }
 </script>
 
 <template>
-  <DialogRoot v-model:open="open">
-    <DialogPortal>
-      <DialogOverlay class="help-drawer-overlay" />
-      <DialogContent
-        class="help-drawer"
-        aria-label="Help"
-        @pointer-down-outside="onPointerDownOutside">
-        <header class="help-drawer-header">
-          <DialogTitle as-child>
-            <div class="help-drawer-titleblock">
-              <div class="help-drawer-eyebrow">Help</div>
-              <div class="help-drawer-title">{{ title }}</div>
-            </div>
-          </DialogTitle>
-          <DialogClose class="help-drawer-close" aria-label="Close help">
-            <Icon name="Close" :size="14" />
-          </DialogClose>
-        </header>
-
-        <div ref="contentEl" class="help-drawer-body" @click="onContentClick">
-          <article v-if="renderedHtml" class="help-drawer-prose" v-html="renderedHtml" />
-          <div v-else class="help-drawer-empty">
-            <p>No help article for this surface yet.</p>
-            <UiButton v-if="helpConfig.onOpenFull" intent="ghost" size="small" @click="openFull">
-              <template #icon><Icon name="Book" :size="13" /></template>
-              Browse all docs
-            </UiButton>
-          </div>
+  <QDialog
+    v-model="open"
+    class="help-drawer-overlay"
+    aria-label="Help"
+    no-route-dismiss
+    transition-show="help-drawer"
+    transition-hide="help-drawer"
+    :transition-duration="0"
+    @keydown="(e) => wrapTab(e, drawerEl)"
+  >
+    <div ref="drawerEl" class="help-drawer">
+      <header class="help-drawer-header">
+        <div class="help-drawer-titleblock">
+          <div class="help-drawer-eyebrow">Help</div>
+          <div class="help-drawer-title">{{ title }}</div>
         </div>
+        <button type="button" class="help-drawer-close" aria-label="Close help" @click="closeHelp">
+          <Icon name="Close" :size="14" />
+        </button>
+      </header>
 
-        <footer
-          v-if="exists && (helpConfig.onOpenFull || helpConfig.onOpenWeb)"
-          class="help-drawer-footer">
+      <div ref="contentEl" class="help-drawer-body" @click="onContentClick">
+        <article v-if="renderedHtml" class="help-drawer-prose" v-html="renderedHtml" />
+        <div v-else class="help-drawer-empty">
+          <p>No help article for this surface yet.</p>
           <UiButton v-if="helpConfig.onOpenFull" intent="ghost" size="small" @click="openFull">
             <template #icon><Icon name="Book" :size="13" /></template>
-            Open full docs
+            Browse all docs
           </UiButton>
-          <UiButton v-if="helpConfig.onOpenWeb" intent="ghost" size="small" @click="openWeb">
-            <template #icon><Icon name="ExternalLink" :size="13" /></template>
-            Open on the web
-          </UiButton>
-        </footer>
-      </DialogContent>
-    </DialogPortal>
-  </DialogRoot>
+        </div>
+      </div>
+
+      <footer
+        v-if="exists && (helpConfig.onOpenFull || helpConfig.onOpenWeb)"
+        class="help-drawer-footer">
+        <UiButton v-if="helpConfig.onOpenFull" intent="ghost" size="small" @click="openFull">
+          <template #icon><Icon name="Book" :size="13" /></template>
+          Open full docs
+        </UiButton>
+        <UiButton v-if="helpConfig.onOpenWeb" intent="ghost" size="small" @click="openWeb">
+          <template #icon><Icon name="ExternalLink" :size="13" /></template>
+          Open on the web
+        </UiButton>
+      </footer>
+    </div>
+  </QDialog>
 </template>
 
 <style scoped>
-.help-drawer-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 250;
-  /* No dim, no blur — the user ruled backdrop dimming + blur off app-wide
-     (2026-07-19). The drawer's own border-left + shadow do the separating.
-     The element STAYS: it carries Reka's outside-click dismissal. */
-  background: transparent;
-  animation: helpFadeIn 160ms ease;
-}
+/* The overlay (QDialog's root, .help-drawer-overlay — no dim, no blur): the kit's theme,
+   ../../quasar/theme.css, "Modal". */
 .help-drawer {
   position: fixed;
   top: 0;
@@ -170,8 +155,14 @@ function openWeb() { helpConfig.onOpenWeb?.(slug.value); }
   flex-direction: column;
   animation: helpSlideIn 220ms cubic-bezier(.22, 1, .36, 1);
   outline: none;
+  /* QDialog's frame for its content: a capped size, rounded corners, its own scroller and
+     layer — none of which the drawer had */
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+  overflow: visible;
+  will-change: auto;
 }
-@keyframes helpFadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes helpSlideIn {
   from { transform: translateX(8%); opacity: 0; }
   to   { transform: translateX(0); opacity: 1; }

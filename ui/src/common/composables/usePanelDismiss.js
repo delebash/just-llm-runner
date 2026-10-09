@@ -14,7 +14,7 @@
 //   usePanelDismiss(() => open.value, panelEl, close);
 //   // extra host-specific exemptions:
 //   usePanelDismiss(() => tasks.panelOpen, panelEl, close, {
-//     exempt: ["[data-sonner-toast]"],
+//     exempt: [".q-notification"],
 //   });
 import { onBeforeUnmount, unref } from "vue";
 
@@ -24,12 +24,13 @@ import { onBeforeUnmount, unref } from "vue";
 export const PANEL_TOGGLE_ATTR = "[data-panel-toggle]";
 
 // Surfaces that are visually "inside" the panel but live elsewhere in the DOM:
-//   - [role="dialog"] — portaled modals (e.g. IndexBuildModal via AppModal)
-//     teleport outside the panel; clicks inside them aren't "outside".
+//   - [role="dialog"] — portaled modals (e.g. IndexBuildModal via AppModal, QDialog's
+//     root) teleport outside the panel; clicks inside them aren't "outside".
+//   - .q-menu — Quasar's popups (the select lists, the feature chip's popover, the
+//     colour picker), portaled outside the panel element.
 //   - [role="listbox"] / .ui-select-content / [data-reka-popper-content-wrapper] —
-//     Reka Select popover content (character/model pickers) is portaled outside
-//     the panel element.
-const PORTAL_EXEMPTIONS = '[role="dialog"], [role="listbox"], .ui-select-content, [data-reka-popper-content-wrapper]';
+//     select lists and the remaining Reka menus, portaled likewise.
+const PORTAL_EXEMPTIONS = '[role="dialog"], .q-menu, [role="listbox"], .ui-select-content, [data-reka-popper-content-wrapper]';
 
 /**
  * @param {import("vue").Ref<boolean>|(() => boolean)} isOpen  panel open-state

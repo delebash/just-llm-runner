@@ -31,10 +31,11 @@
 // QC-26/#224 deleted — now rebuilt on the one-source preset model, not the dead
 // per-surface pin.)
 
+// The popover is Quasar's QMenu (the kit's controls on Quasar —
+// docs/plans/2026-10-09-kit-controls-on-quasar.md, slice 7): inside a modal (QDialog) it
+// opens in the dialog's own layer, so the dialog's focus trap lets its fields take focus.
 import { computed, ref, watch } from "vue";
-import {
-  PopoverAnchor, PopoverContent, PopoverPortal, PopoverRoot,
-} from "reka-ui";
+import { QMenu } from "quasar";
 import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
 import { request } from "../client.js";
@@ -252,72 +253,75 @@ async function save() {
 </script>
 
 <template>
-  <PopoverRoot v-model:open="popoverOpen">
-    <PopoverAnchor as-child>
-      <button class="afc-chip" @click.stop="onChipClick" v-tooltip.bottom="tooltip">
-        <template v-if="label">
-          <span class="afc-label">{{ label }}</span>
-          <span class="afc-sep">·</span>
-        </template>
-        <template v-else-if="!compact">
-          <span class="afc-label">Runs on</span>
-          <span class="afc-sep">·</span>
-        </template>
-        <b class="afc-provider">{{ resolvedProviderName }}</b>
-        <span class="afc-sep">·</span>
-        <code class="afc-model">{{ resolvedModel }}</code>
-        <Icon name="ChevRight" :size="9" class="afc-caret" />
-      </button>
-    </PopoverAnchor>
+  <button class="afc-chip" @click.stop="onChipClick" v-tooltip.bottom="tooltip">
+    <template v-if="label">
+      <span class="afc-label">{{ label }}</span>
+      <span class="afc-sep">·</span>
+    </template>
+    <template v-else-if="!compact">
+      <span class="afc-label">Runs on</span>
+      <span class="afc-sep">·</span>
+    </template>
+    <b class="afc-provider">{{ resolvedProviderName }}</b>
+    <span class="afc-sep">·</span>
+    <code class="afc-model">{{ resolvedModel }}</code>
+    <Icon name="ChevRight" :size="9" class="afc-caret" />
 
-    <PopoverPortal v-if="editable">
-      <PopoverContent class="afc-pop" side="bottom" align="start" :side-offset="6" :collision-padding="8">
-        <div class="afc-pop-h">Runs on <b>{{ label || feature }}</b></div>
+    <QMenu
+      v-if="editable"
+      v-model="popoverOpen"
+      no-parent-event
+      class="afc-pop"
+      anchor="bottom left"
+      self="top left"
+      :offset="[0, 6]"
+      :transition-duration="0"
+    >
+      <div class="afc-pop-h">Runs on <b>{{ label || feature }}</b></div>
 
-        <div v-if="loading" class="afc-pop-loading">Loading…</div>
-        <template v-else>
-          <LuModelPicker
-            :model-value="draftPin"
-            :providers="providers"
-            editable
-            stacked
-            labels
-            inherit-label="Inherit default"
-            @update:model-value="draftPin = $event" />
+      <div v-if="loading" class="afc-pop-loading">Loading…</div>
+      <template v-else>
+        <LuModelPicker
+          :model-value="draftPin"
+          :providers="providers"
+          editable
+          stacked
+          labels
+          inherit-label="Inherit default"
+          @update:model-value="draftPin = $event" />
 
-          <!-- ONE three-state control, both routes (Off / Model|Provider default /
-               levels). Local levels show their map numbers; the line below reports
-               what actually resolves and which layer said so. -->
-          <label class="afc-pop-field">
-            <span class="afc-pop-lbl">Thinking</span>
-            <select class="lu-input afc-pop-sel" :value="draftThinking"
-              @change="draftThinking = $event.target.value">
-              <option v-for="o in thinkingOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
-            </select>
-          </label>
+        <!-- ONE three-state control, both routes (Off / Model|Provider default /
+             levels). Local levels show their map numbers; the line below reports
+             what actually resolves and which layer said so. -->
+        <label class="afc-pop-field">
+          <span class="afc-pop-lbl">Thinking</span>
+          <select class="lu-input afc-pop-sel" :value="draftThinking"
+            @change="draftThinking = $event.target.value">
+            <option v-for="o in thinkingOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+        </label>
 
-          <div v-if="budgetLine" class="afc-pop-cap">{{ budgetLine }}</div>
-          <div v-if="isUnlimited" class="afc-pop-warn">Unlimited ⚠ — this model has been observed to loop; may think until the context fills</div>
-          <!-- The gate REMOVAL (ruled 2026-08-06, "no fancy magic"): thinking is
-               sent exactly as the preset asks — no inactive state exists to
-               annotate; a model that can't take it answers with its own error. -->
+        <div v-if="budgetLine" class="afc-pop-cap">{{ budgetLine }}</div>
+        <div v-if="isUnlimited" class="afc-pop-warn">Unlimited ⚠ — this model has been observed to loop; may think until the context fills</div>
+        <!-- The gate REMOVAL (ruled 2026-08-06, "no fancy magic"): thinking is
+             sent exactly as the preset asks — no inactive state exists to
+             annotate; a model that can't take it answers with its own error. -->
 
-          <!-- Every save is preset-sized now — the thinking level rides the preset. -->
-          <div class="afc-pop-blast">
-            Changes the “<b>{{ presetName }}</b>” preset — used by {{ memberCount }}
-            feature{{ memberCount === 1 ? "" : "s" }}
-          </div>
+        <!-- Every save is preset-sized now — the thinking level rides the preset. -->
+        <div class="afc-pop-blast">
+          Changes the “<b>{{ presetName }}</b>” preset — used by {{ memberCount }}
+          feature{{ memberCount === 1 ? "" : "s" }}
+        </div>
 
-          <div v-if="saveErr" class="afc-pop-err">{{ saveErr }}</div>
+        <div v-if="saveErr" class="afc-pop-err">{{ saveErr }}</div>
 
-          <div class="afc-pop-foot">
-            <UiButton intent="ghost" size="small" @click="popoverOpen = false">Cancel</UiButton>
-            <UiButton intent="primary" size="small" :loading="saving" @click="save">Save</UiButton>
-          </div>
-        </template>
-      </PopoverContent>
-    </PopoverPortal>
-  </PopoverRoot>
+        <div class="afc-pop-foot">
+          <UiButton intent="ghost" size="small" @click="popoverOpen = false">Cancel</UiButton>
+          <UiButton intent="primary" size="small" :loading="saving" @click="save">Save</UiButton>
+        </div>
+      </template>
+    </QMenu>
+  </button>
 </template>
 
 <style scoped>
@@ -348,27 +352,17 @@ async function save() {
 .afc-caret { color: var(--muted); margin-left: 2px; flex-shrink: 0; }
 
 /* ── the edit popover ─────────────────────────────────────────────────────── */
-/* :global is REQUIRED, not a shortcut — PROVEN by DOM probe 2026-07-16, do not "clean up".
-   reka-ui's PopoverContent root receives the `class` (attr fallthrough) but NOT Vue's
-   scope attribute, so a scoped `.afc-pop` rule matches NOTHING and the popover ships
-   BOXLESS — no width, no background, shrink-wrapped to its widest <select>, text bleeding
-   over whatever is behind it. It looks correctly wired in source, which is why it shipped.
-   Measured, same jsdom probe, same day:
-     .afc-pop  (PopoverContent root) → data-dismissable-layer|style|tabindex|class|id|…  NO data-v
-     .ui-modal (DialogContent root)  → data-v-f924ce02|data-dismissable-layer|class|…    HAS data-v
-   So this is NOT general to reka portals: AppModal/HelpDrawer (DialogContent) are fine and
-   stay scoped; UiSelect carries no scoped block. LuFeatureChip is the kit's ONLY
-   PopoverContent. The slot's children DO get the scope id and stay scoped below — only the
-   root rule must be global. If a reka upgrade ever propagates it, this can go back. */
+/* :global is REQUIRED, not a shortcut: the popover's box is QMenu's own element, teleported
+   out of this component, so it carries the `class` but NOT Vue's scope attribute — a scoped
+   `.afc-pop` rule would match nothing and the popover would ship boxless (it did once, under
+   reka-ui, 2026-07-16). The slot's children DO get the scope id and stay scoped below. */
 :global(.afc-pop) {
-  /* 999 — NOT a guess: this popover portals to <body> (PopoverPortal, no `to`), so in a
-     modal it lands as a SIBLING of AppModal's .ui-modal-overlay (z 200) / .ui-modal
-     (z 201), and reka's [data-reka-popper-content-wrapper] carries `z-index: auto` (no
-     stacking context) — so THIS number competes directly with the overlay's. At 60 it
-     painted behind the scrim + its backdrop blur = invisible ("model pick is not
-     opening", user 2026-07-17). 999 matches .ui-select-content (common/styles.css) — the
-     other body-portalled reka popper that already clears modals — one value for one role.
-     Pinned by justwrite-app chipPopoverStacking.test.js. */
+  /* 999 — NOT a guess: outside a modal this popover sits on <body> beside the page's other
+     layers; inside one it opens in the modal's own layer (QDialog's root, z 200). Below 200
+     it painted behind a modal's overlay = invisible ("model pick is not opening", user
+     2026-07-17). 999 matches .ui-select-content (the kit's Quasar theme) — the other popup
+     used inside modals — one value for one role. Pinned by justwrite-app
+     chipPopoverStacking.test.js. */
   z-index: 999;
   width: 300px; max-width: calc(100vw - 24px);
   display: flex; flex-direction: column; gap: 10px;

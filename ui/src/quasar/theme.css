@@ -494,3 +494,90 @@
   border-radius: var(--r-md, 10px);
   box-shadow: 0 12px 36px var(--shadow-medium, rgba(0,0,0,.18));
 }
+
+/* ── Modal (AppModal on QDialog + QCard; the help drawer on QDialog) ───── */
+/* QDialog's root is the overlay (.ui-modal-overlay, .help-drawer-overlay): fixed over the page
+   at the old overlay's z-index, so what opens over a modal (select lists, menus, toasts) still
+   clears it; its backdrop blocks the page and takes the outside click, and paints nothing —
+   no dim, no blur (the user's ruling, 2026-07-19). The card is placed and drawn by its
+   component as before; QDialog's inner wrapper is only its frame. The card's open animation is
+   its own; on close QDialog keeps it for 0.16s while it plays its close animation (a dragged
+   modal just goes, as before) and emits hide at its transition-duration. The help drawer
+   closes at once, as it did. */
+.ui-modal-overlay { z-index: 200; }
+.help-drawer-overlay { z-index: 250; }
+:where(.ui-modal-overlay, .help-drawer-overlay) .q-dialog__backdrop { background: transparent; }
+.ui-modal { animation: ui-modal-in 0.18s ease-out; }
+.q-transition--ui-modal-leave-active { animation: ui-modal-hold 0.16s; }
+.q-transition--ui-modal-leave-active:has(.ui-modal.is-dragged) { animation: none; }
+.q-transition--ui-modal-leave-active .ui-modal { animation: ui-modal-out 0.16s ease-in forwards; }
+@keyframes ui-modal-in {
+  from { opacity: 0; transform: translate(-50%, -48%) scale(0.98); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes ui-modal-out {
+  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  to   { opacity: 0; transform: translate(-50%, -48%) scale(0.98); }
+}
+@keyframes ui-modal-hold { to { opacity: 1; } }
+
+/* ── Toast (pushToast on Quasar's Notify) ──────────────────────────────── */
+/* The look vue-sonner gave (its light theme with rich colours, as the kit's toaster set it):
+   356px cards centred 40px above the bottom, 10px apart; each kind its own colours and icon;
+   a round ✕ on the top-left corner; the action button in the toast's normal colours. Notify's
+   wrappers pass through, so the icon, the message and the buttons sit in the card's row as
+   sonner's did. An app recolours through the --ui-toast-* properties (JustWrite does). Toasts
+   stack in a column, the newest at the bottom — sonner folded the older ones behind the newest
+   until the pointer came over them. */
+.q-notifications__list--bottom { margin-bottom: 40px; }
+.ui-toast {
+  --ui-toast-normal-bg: #fff; --ui-toast-normal-border: hsl(0, 0%, 93%); --ui-toast-normal-text: hsl(0, 0%, 9%);
+  --ui-toast-success-bg: hsl(143, 85%, 96%); --ui-toast-success-border: hsl(145, 92%, 87%); --ui-toast-success-text: hsl(140, 100%, 27%);
+  --ui-toast-info-bg: hsl(208, 100%, 97%); --ui-toast-info-border: hsl(221, 91%, 93%); --ui-toast-info-text: hsl(210, 92%, 45%);
+  --ui-toast-warning-bg: hsl(49, 100%, 97%); --ui-toast-warning-border: hsl(49, 91%, 84%); --ui-toast-warning-text: hsl(31, 92%, 45%);
+  --ui-toast-error-bg: hsl(359, 100%, 97%); --ui-toast-error-border: hsl(359, 100%, 94%); --ui-toast-error-text: hsl(360, 100%, 45%);
+  --ui-toast-bg: var(--ui-toast-normal-bg); --ui-toast-border: var(--ui-toast-normal-border); --ui-toast-text: var(--ui-toast-normal-text);
+  position: relative; display: flex; align-items: center; gap: 6px;
+  width: 356px; max-width: calc(100vw - 32px); min-height: 0; margin: 10px 0 0; padding: 16px;
+  background: var(--ui-toast-bg); color: var(--ui-toast-text); border: 1px solid var(--ui-toast-border);
+  border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial,
+    Noto Sans, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji;
+  font-size: 13px; overflow-wrap: anywhere;
+  transition: transform 400ms, opacity 400ms;
+}
+.ui-toast--success { --ui-toast-bg: var(--ui-toast-success-bg); --ui-toast-border: var(--ui-toast-success-border); --ui-toast-text: var(--ui-toast-success-text); }
+.ui-toast--info    { --ui-toast-bg: var(--ui-toast-info-bg);    --ui-toast-border: var(--ui-toast-info-border);    --ui-toast-text: var(--ui-toast-info-text); }
+.ui-toast--warning { --ui-toast-bg: var(--ui-toast-warning-bg); --ui-toast-border: var(--ui-toast-warning-border); --ui-toast-text: var(--ui-toast-warning-text); }
+.ui-toast--error   { --ui-toast-bg: var(--ui-toast-error-bg);   --ui-toast-border: var(--ui-toast-error-border);   --ui-toast-text: var(--ui-toast-error-text); }
+.q-notification--bottom-enter-from.ui-toast,
+.q-notification--bottom-leave-to.ui-toast { transform: translateY(100%); opacity: 0; }
+:where(.ui-toast) .q-notification__wrapper,
+:where(.ui-toast) .q-notification__content,
+:where(.ui-toast) .q-notification__actions { display: contents; }
+/* Notify colours its buttons with the brand colour; the toast's own colour reaches them */
+:where(.ui-toast) .q-notification__actions { color: inherit; }
+.ui-toast .q-notification__icon {
+  display: flex; align-items: center; justify-content: flex-start;
+  width: 16px; height: 16px; flex: 0 0 16px; margin: 0 4px 0 -3px; font-size: 20px;
+}
+.ui-toast .q-notification__icon > svg { width: 20px; height: 20px; margin-left: -1px; flex-shrink: 0; }
+.ui-toast .q-notification__message { display: flex; flex-direction: column; gap: 2px; padding: 0; font-weight: 500; line-height: 1.5; }
+.ui-toast .q-notification__caption { font-size: inherit; font-weight: 400; line-height: 1.4; opacity: 1; }
+.ui-toast .ui-toast__close {
+  position: absolute; left: 0; top: 0; z-index: 1; transform: translate(-35%, -35%);
+  width: 20px; height: 20px; min-width: 0; min-height: 0; padding: 0;
+  color: var(--ui-toast-text); background: var(--ui-toast-bg); border: 1px solid var(--ui-toast-border); border-radius: 50%;
+  cursor: pointer;
+}
+.ui-toast .ui-toast__close:hover { background: hsl(0, 0%, 97.3%); border-color: hsl(0, 0%, 90.9%); }
+:where(.ui-toast .ui-toast__close) .q-icon { font-size: 12px; }
+.ui-toast .ui-toast__action {
+  flex-shrink: 0; margin-left: auto; height: 24px; min-height: 0; padding: 0 8px;
+  color: var(--ui-toast-normal-bg); background: var(--ui-toast-normal-text); border: none; border-radius: 4px;
+  font-size: 12px; font-weight: 500; line-height: inherit; text-transform: none; letter-spacing: normal; cursor: pointer;
+}
+:where(.ui-toast .ui-toast__action)::before,
+:where(.ui-toast .ui-toast__close)::before { display: none; }
+/* sonner's buttons centred their content in a row; QBtn stacks it in a column */
+:where(.ui-toast .ui-toast__action, .ui-toast .ui-toast__close) { flex-direction: row; align-items: center; justify-content: center; }

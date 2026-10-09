@@ -458,6 +458,9 @@ function checkQuasar(app) {
   if (!/framework:\s*\{[\s\S]*?config:\s*\{[^}]*\bripple:\s*false/.test(qconf)) {
     fail(name, "quasar.config.js's framework.config doesn't turn the ripple off (ripple: false) — the family draws no Material ripple (§Q.4)");
   }
+  if (!/framework:\s*\{[\s\S]*?plugins:\s*\[[^\]]*["']Notify["']/.test(qconf)) {
+    fail(name, "quasar.config.js's framework.plugins doesn't list 'Notify' — the kit's pushToast() runs on it (§Q.4)");
+  }
   // The kit's controls import Quasar by bare name from the kit's own folder, which has no
   // node_modules: one copy of Quasar comes from the app's, as for the kit's other peers.
   for (const rel of ["quasar.config.js", "vitest.config.js"]) {

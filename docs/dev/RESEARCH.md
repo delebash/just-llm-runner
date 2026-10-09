@@ -722,7 +722,34 @@ step Q3):
     `transform: scale(1)`.
   - QMenu (2.35) places itself with CSS anchor positioning (`position-anchor`, `anchor()`), at
     fractional pixels; it focuses the menu when it opens and gives focus back to its target when
-    it closes; Esc closes it wherever the focus is.
+    it closes; Esc closes it wherever the focus is. A QMenu opened from inside a QDialog is
+    mounted inside the dialog's root, after its inner wrapper.
+- **QDialog and Notify** (*code* + *measured*, 2026-10-09):
+  - QDialog renders a root (`role="dialog"`, `aria-modal`, the caller's attributes and listeners;
+    `.fullscreen`, z-index 6000) holding a backdrop (`mousedown` → hide unless
+    `no-backdrop-dismiss`/`persistent`, else shake unless `no-shake`) and an inner wrapper (tabindex
+    -1) around the content. It caps the content (`max-width: 560px` from 600px up,
+    `max-height: calc(100dvh - 48px)`, `will-change: scroll-position`). On show it focuses the
+    wrapper unless something inside has focus or `[autofocus]`; on hide it gives focus back. Its
+    trap is a `focusin` listener that pulls an outside focus back to the first
+    `[tabindex]:not([tabindex="-1"])` inside, so Tab past the last control leaves the page for one
+    press (no `focusin` on `<body>`) and the next lands on the first control with a tabindex
+    attribute. Its transitions are classes `q-transition--<name>-*` on the wrapper; `hide` comes
+    `transition-duration` ms after hiding starts. It closes on a route change unless
+    `no-route-dismiss`. Its scroll lock is `<html>` classes (`overflow: hidden`, `overscroll-behavior:
+    none`).
+  - Notify needs `framework.plugins: ['Notify']`; `Notify.create` returns a dismiss function. It
+    dismisses at `timeout + 1000` ms on a plain timer (no hover pause), groups identical toasts
+    unless `group: false`, colours text white unless `textColor` is given as undefined, gives each
+    toast `role="alert"` unless `attrs` say otherwise, and stacks a position's toasts in a column
+    (bottom: the newest last).
+- **vue-sonner 2.0.9's look** (*code*, `lib/index.css`; *measured* against the kit's Notify toasts,
+  0 pixels apart): 356px toasts, 16px padding, 1px border, radius 8, `0 4px 12px rgba(0,0,0,.1)`,
+  13px in the system font stack, 6px gaps; light palette normal `#fff`/`hsl(0,0%,93%)`/
+  `hsl(0,0%,9%)` and rich colours per kind (success, info, warning, error — the theme's
+  `--ui-toast-*`); a 20px round ✕ at the top-left, translated −35%; the action button 24px high in
+  the normal colours; the kinds' icons are Heroicons. The Toaster puts its palette on its own list,
+  so a host's custom properties on an ancestor never reach the toasts.
 - **Chrome's native range with `accent-color`** (*measured*, Playwright's Chromium 149.0.7827, 2026-10-09 — the
   look `UiSlider` keeps): the track is an 8px pill with a 1px edge, inset 1px from the input's
   ends; the 16px thumb's centre travels from 8px inside one end to 8px inside the other; a click

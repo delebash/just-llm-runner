@@ -195,7 +195,8 @@ origins), the phone's webview origins (the kit's `CAPACITOR_ORIGINS`) and Quasar
   (`tokens.css`, from the kit's `tokens.contract.css`; the template's `src/css/tokens.css`). The
   kit's override sheet (with Q3's controls) covers what variables can't reach, and gives Quasar's
   own components their disabled look; Quasar's icons become the kit's line icons (an icon
-  set). The phone UI-library test measured it: every Appearance knob drives Quasar's controls live
+  set). The kit's toasts (`pushToast`) are Quasar's Notify plugin, so every app lists `'Notify'` in
+  `quasar.config.js > framework.plugins` (the guard checks it). The phone UI-library test measured it: every Appearance knob drives Quasar's controls live
   (JustWrite's `docs/plans/2026-10-08-phone-ui-library-test.md`).
 - **Start-up code lives in boot files** (`src/boot/<name>.js`, `defineBoot` from `'#q-app'`, listed
   in `quasar.config.js > boot`), not `main.js`: the kit's UI install (`installLlmUi`), the

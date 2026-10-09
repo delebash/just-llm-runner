@@ -71,9 +71,9 @@ export function confirmDialog(options = {}) {
 }
 
 // Called by the dialog host on confirm / cancel. We deliberately keep `kind` and
-// `options` set after closing — the host renders its body off those, and Reka
-// UI's DialogContent keeps the frame mounted during its ~150ms close animation;
-// clearing synchronously made the body vanish mid-fade. The next openDialog
+// `options` set after closing — the host renders its body off those, and the
+// modal (AppModal on Quasar's QDialog) keeps the frame mounted during its close
+// animation; clearing synchronously made the body vanish mid-fade. The next openDialog
 // overwrites both atomically, so the stale data is harmless until then.
 export function _resolveDialog(value) {
   const r = dialogState._resolve;

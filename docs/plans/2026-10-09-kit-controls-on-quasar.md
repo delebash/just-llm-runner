@@ -103,8 +103,10 @@ control install Quasar with the kit's `QUASAR_TEST_OPTIONS`.
 | `UiColorPicker` | `QMenu` (the popover) | the preset swatches and the browser's own colour dialog kept — built without `QColor`, which would replace both (slice 6) |
 | `UiProgress` | `QLinearProgress` | indeterminate when `max` ≤ 0 |
 | `UiTable` | `QTable` | column slots, `head-*` slots, `empty`, `full-row`, `rowClass` (`table-row-class-fn`), global filter (`filter-method`), sorting (`update:sort`), the pager |
-| `AppModal`, `AppDialog` | `QDialog` + `QCard` | `closable`/`dismissable` → `no-esc-dismiss`/`no-backdrop-dismiss`; the drag-by-header stays the kit's; `confirmDialog`/`promptDialog` keep their promises |
-| `Toast` + `pushToast` | Quasar's `Notify` plugin | `pushToast`'s signature kept |
+| `AppModal`, `AppDialog`, `HelpDrawer` | `QDialog` + `QCard` | `closable`/`dismissable` → `no-esc-dismiss`/`no-backdrop-dismiss`; the drag-by-header stays the kit's; `confirmDialog`/`promptDialog` keep their promises; the help drawer (a Reka dialog too) moves with them (slice 7) |
+| `Toast` + `pushToast` | Quasar's `Notify` plugin | `pushToast`'s signature kept; the `Toast` host goes (Notify mounts its own) |
+| `LuFeatureChip`'s popover | `QMenu` | it opens inside modals, where Quasar's focus trap would close a Reka popover (slice 7) |
+| the remaining Reka menus — `LuModelCatalog`'s row menu, JustVoice's row menus (`SpeechEnginesTab`, `StudioScript`, `PersonasView`, `VoicesView`), JustWrite's `StatusSelect` | `QMenu`, `QSelect` | found in slice 7: the map named the kit's `Ui*` controls only (slice 7b) |
 
 The kit's family pieces built from these controls (the AI settings, the task strip, the model
 catalog, the Sync panel, …) convert by themselves, because they use the controls.
@@ -202,7 +204,11 @@ nothing (the class sits on the input itself, or on a select whose root renders n
 JustVoice's `QuickSetup.vue:495` scoped `input` can't reach the checkbox's input; JustVoice's
 `scripts/verify-dialogs.js` and `scripts/e2e.js:66,87,106` select classes no template has; the
 kit's `AppearancePanel.vue:98` accent-hue slider is a hand-rolled native `<input type="range">`,
-not `UiSlider` (JustVoice's global `input[type="range"]` rules now reach only it).
+not `UiSlider` (JustVoice's global `input[type="range"]` rules now reach only it); JustWrite's toast
+colours (dark ink, per-kind intents in `styles.css`) never reached a toast — vue-sonner re-declared
+its own palette on its list below JustWrite's `.ui-toaster` — so its toasts showed sonner's light
+look; slice 7 kept that look and dropped the colour block (the kit's `--ui-toast-*` properties
+would recolour them).
 
 ## 5 · Slices and how each is checked
 
@@ -218,7 +224,10 @@ wrapper pattern are proven on small pieces first.
 5. **Selects** — `UiSelect`, `UiMultiSelect`.
 6. **The rest of the small controls** — `UiSegmented`, `UiTabStrip`, `UiSlider`, `UiProgress`,
    `UiColorPicker`.
-7. **Dialogs and toasts** — `AppModal`, `AppDialog`, `Toast`/`pushToast`.
+7. **Dialogs and toasts** — `AppModal`, `AppDialog`, `Toast`/`pushToast` (and the help drawer and
+   the feature chip's popover, which live inside dialogs).
+   7b. **The remaining Reka menus** — `LuModelCatalog`'s row menu, JustVoice's four row menus,
+   JustWrite's `StatusSelect` (found in slice 7).
 8. **The table** — `UiTable`.
 9. **Clean-up** — drop the packages nothing uses any more; the rule in `docs/app-structure.md`
    ("nothing hand-rolled that Quasar or the kit ships"); the apps' CLAUDE.md control tables and
@@ -453,3 +462,43 @@ moments), the colour picker (closed, hovered, open, a preset hovered, dark) — 
 sliders' sub-pixel rasterisation (Chrome pixel-snaps a native input, not a div; ≤ 1px bands), the
 popover's sub-pixel placement and the tab's focus ring; 38 behaviour checks the same on both
 builds but the tab keyboard and roles and the colour picker's focus, as above.
+
+**Slice 7 — `AppModal` and `AppDialog` on `QDialog` + `QCard`, the help drawer on `QDialog`, the
+toasts on `Notify`, the feature chip's popover on `QMenu`** (Reka UI and vue-sonner no longer under
+any of them; the `Toast` host is gone).
+
+- **The modal:** QDialog's root is the overlay (`.ui-modal-overlay`, `role="dialog"`,
+  `aria-modal`), kept at the old z-index 200 so what opens over a modal still clears it; its backdrop
+  blocks the page and takes the outside click and paints nothing. The card is the QCard, placed,
+  dragged and animated as before; on close QDialog keeps it for its close animation and `close`
+  comes at 0.2s, as before. QDialog's content cap and its `will-change` layer are taken off the card.
+  QDialog's focus trap lets Tab leave the page for one press and then lands on the first control
+  with a tabindex attribute; the kit's `wrapTab` (`common/composables/useTabWrap.js`) keeps the loop
+  the Reka dialogs had. A press on the backdrop keeps the focus where it was.
+- **The help drawer** is a QDialog the same way; it closes at once, as before.
+- **The feature chip's popover** is a QMenu: inside a modal it opens in the dialog's own layer, so
+  the trap lets its fields take focus — under Reka its keyboard use inside a modal closed it, and
+  Esc there closed the modal too; now Esc closes the popover only.
+- **The toasts:** `pushToast` creates Notify toasts the theme draws as vue-sonner did (its light
+  palette with rich colours, the kind icons, the ✕, the action button) — JustVoice's normal and
+  warning toasts and JustWrite's restyled ones match to the pixel. The bridge keeps what sonner did
+  beyond Notify: the timers pause while a toast is hovered or the window hidden, at most three are up
+  (a fourth retires the oldest), `clearToasts` clears them. Every app lists `Notify` in
+  `quasar.config.js` (the guard checks it; the template too). Toasts stack in a column; sonner folded
+  the older ones behind the newest until hovered.
+- **Left as it is:** a modal opens with the focus on itself, not its first control (Reka focused the
+  first — in JustWrite's AI modals that also popped the feature chip's tooltip); a toast is
+  `role="status"` where sonner made its list `aria-live`.
+- **Tests:** JustWrite's `modalDragAndScrim`, `chipPopoverStacking` and `panelDismissAndNoDim` read the
+  overlay rules from the kit's theme now and mount through QDialog; the panel-dismiss exemptions
+  take `.q-menu` and the toasts' `.q-notification`.
+
+Checked: lint; the guard; the apps' unit tests (590 — four of JustWrite's overlay checks folded into
+one — 183, 3); the 30 screens (live values only); 17 states — the Critique modal (open, the ✕
+hovered, dark), the help drawer (light, dark), the feature chip's popover in the modal and in the
+Ask-the-book panel, the prompt (empty, typed, several fields) and confirm dialogs, the toasts
+(JustWrite's plain and with Undo, the ✕ hovered; JustVoice's plain, warning, dark) — the same but
+for the opening focus, sub-pixel edges and 1/255 rounding; 32 behaviour checks the same on both
+builds but the opening focus, aria-modal, the chip popover's keyboard use and Esc in a modal, and
+the toast's role, as above; JustVoice's smoke, docgen's e2e 20/20 on the real project, JustWrite's
+e2e 7/7.

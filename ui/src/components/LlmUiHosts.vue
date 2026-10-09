@@ -10,11 +10,11 @@
 // which is exactly what presence-testing cannot catch).
 //
 // One tag rather than a list, because the failure mode was mounting SOME of them.
+// (The toasts need no host since they moved to Quasar's Notify, which mounts its own —
+// every app lists Notify in its quasar.config.js plugins.)
 import AppDialog from "../common/components/AppDialog.vue";
-import Toast from "../common/components/Toast.vue";
 </script>
 
 <template>
-  <Toast />
   <AppDialog />
 </template>

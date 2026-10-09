@@ -1,12 +1,19 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!--
-  AppModal — shared generic modal wrapper (Reka UI Dialog). Same API both apps
+  AppModal — shared generic modal wrapper. Same API both apps
   call: eyebrow / title / wide / noPadding / closable / closeLabel props +
-  default / header / footer slots. Reka gives focus trap + scroll lock + Esc +
-  ARIA; this ships self-contained, token-driven styles (no app global classes).
-  Backdrop dismissal is ALWAYS locked; closable:false also blocks Esc + hides
-  the X (for in-flight modals that hold an AbortSignal). Supersedes the per-app
-  AppModal.vue forks (JV's `.jv-modal` + JW's `.app-modal`).
+  default / header / footer slots. Self-contained, token-driven styles (no app
+  global classes). Backdrop dismissal is locked unless `dismissable`;
+  closable:false also blocks Esc + hides the X (for in-flight modals that hold an
+  AbortSignal). Supersedes the per-app AppModal.vue forks (JV's `.jv-modal` + JW's
+  `.app-modal`).
+
+  Quasar's QDialog + QCard underneath (the kit's controls on Quasar —
+  docs/plans/2026-10-09-kit-controls-on-quasar.md, slice 7): QDialog gives the focus
+  trap, the scroll lock, Esc, the backdrop that blocks the page and role="dialog" /
+  aria-modal on its root (.ui-modal-overlay); the card (.ui-modal) is the QCard, placed
+  and drawn here as before. The overlay's look and the open/close animation are the
+  kit's theme (../../quasar/theme.css, "Modal").
 
   Emits: close (after the leave transition, so a parent v-if removal doesn't
   tear the overlay mid-fade).
@@ -14,16 +21,11 @@
 <script setup>
 import { computed, ref, useSlots, watch } from "vue";
 import { useDraggable } from "@vueuse/core";
-import {
-  DialogRoot,
-  DialogPortal,
-  DialogOverlay,
-  DialogContent,
-  DialogTitle,
-  DialogClose,
-  VisuallyHidden,
-} from "reka-ui";
+import { QCard, QDialog } from "quasar";
 import Icon from "./Icon.vue";
+import { wrapTab } from "../composables/useTabWrap.js";
+
+let uid = 0;
 
 const props = defineProps({
   eyebrow: { type: String, default: "" },
@@ -47,35 +49,33 @@ const props = defineProps({
 const emit = defineEmits(["close"]);
 
 const slots = useSlots();
+// QDialog emits hide this long after it starts closing — `close` comes then, as before
 const TRANSITION_MS = 200;
 const visible = ref(true);
-let pending = null;
-watch(visible, (v, prev) => {
-  if (!v && prev) {
-    if (pending) clearTimeout(pending);
-    pending = setTimeout(() => { pending = null; emit("close"); }, TRANSITION_MS);
-  }
-});
 function close() { visible.value = false; }
 defineExpose({ close });
 
-// Reka fires escape-key-down BEFORE its built-in close; preventDefault() blocks
-// it to enforce closable:false. Backdrop dismissal blocked unconditionally.
-function onEscape(e) { if (!props.closable) e.preventDefault(); }
-function onOutside(e) { if (!props.dismissable) e.preventDefault(); }
+// The dialog's accessible name: the title block, or (when a #header slot replaces
+// it) the title prop as a label.
+const titleId = `ui-modal-title-${++uid}`;
+
+// A press on the backdrop keeps the focus where it was (inside the modal), as before — the
+// backdrop isn't focusable, so the browser would otherwise move the focus to the page.
+function onOverlayMousedown(e) {
+  if (e.target?.classList?.contains("q-dialog__backdrop")) e.preventDefault();
+}
 
 // ---------------------------------------------------------------------------
 // Drag by the header (user ruling 2026-07-19). VueUse's useDraggable rather than
 // a hand-rolled pointer dance: it already ships handle + disabled + a cancellable
-// onStart, and it was ALREADY installed (a transitive dep of reka-ui) — we only
-// declare it. Position RESETS on every open: `dragged`/`position` are plain setup
+// onStart. Position RESETS on every open: `dragged`/`position` are plain setup
 // refs and the component is mounted fresh by a parent v-if at the call sites, so
 // a reopen is a new setup scope. `visible` is watched anyway as a belt-and-braces
 // reset for any call site that keeps AppModal mounted and toggles it instead.
 const contentRef = ref(null);
 const headerRef = ref(null);
 const dragged = ref(false);
-// Reka's DialogContent is a component; a template ref yields the instance, so
+// The card is QCard, a component; a template ref yields the instance, so
 // unwrap $el. The `?? contentRef.value` fallback covers a plain-element ref.
 const dragTarget = computed(() => contentRef.value?.$el ?? contentRef.value);
 // Keep at least this much of the modal reachable, so it can never be thrown
@@ -144,73 +144,62 @@ const contentStyle = computed(() => {
 </script>
 
 <template>
-  <DialogRoot v-model:open="visible">
-    <DialogPortal>
-      <DialogOverlay class="ui-modal-overlay" />
-      <DialogContent
-        ref="contentRef"
-        class="ui-modal"
-        :class="{
-          'ui-modal--wide': wide,
-          'ui-modal--flush': noPadding,
-          'ui-modal--draggable': draggable,
-          'is-dragged': dragged,
-        }"
-        :style="contentStyle"
-        @escape-key-down="onEscape"
-        @pointer-down-outside="onOutside"
-        @interact-outside="onOutside"
-      >
-        <header ref="headerRef" class="ui-modal__header">
-          <slot name="header">
-            <DialogTitle as-child>
-              <div class="ui-modal__titleblock">
-                <div v-if="eyebrow" class="ui-modal__eyebrow">{{ eyebrow }}</div>
-                <div v-if="title" class="ui-modal__title">{{ title }}</div>
-              </div>
-            </DialogTitle>
-          </slot>
-          <!-- Reka requires a DialogTitle for a11y; when a #header slot replaces
-               ours, mount a visually-hidden one. -->
-          <VisuallyHidden v-if="slots.header" as-child>
-            <DialogTitle>{{ title || "Dialog" }}</DialogTitle>
-          </VisuallyHidden>
-          <!-- Extra header content (badges/tags) between the title and the close
-               button — keeps the eyebrow/title props + their styling. -->
-          <slot name="header-extra" />
-          <DialogClose v-if="closable" class="ui-modal__close" :aria-label="closeLabel">
-            <Icon name="Close" :size="14" />
-          </DialogClose>
-        </header>
+  <QDialog
+    v-model="visible"
+    class="ui-modal-overlay"
+    :no-esc-dismiss="!closable"
+    :no-backdrop-dismiss="!dismissable"
+    no-shake
+    no-route-dismiss
+    transition-show="ui-modal"
+    transition-hide="ui-modal"
+    :transition-duration="TRANSITION_MS"
+    :aria-labelledby="slots.header ? undefined : titleId"
+    :aria-label="slots.header ? title || 'Dialog' : undefined"
+    @mousedown="onOverlayMousedown"
+    @keydown="(e) => wrapTab(e, dragTarget)"
+    @hide="emit('close')"
+  >
+    <QCard
+      ref="contentRef"
+      class="ui-modal"
+      :class="{
+        'ui-modal--wide': wide,
+        'ui-modal--flush': noPadding,
+        'ui-modal--draggable': draggable,
+        'is-dragged': dragged,
+      }"
+      :style="contentStyle"
+    >
+      <header ref="headerRef" class="ui-modal__header">
+        <slot name="header">
+          <div :id="titleId" class="ui-modal__titleblock">
+            <div v-if="eyebrow" class="ui-modal__eyebrow">{{ eyebrow }}</div>
+            <div v-if="title" class="ui-modal__title">{{ title }}</div>
+          </div>
+        </slot>
+        <!-- Extra header content (badges/tags) between the title and the close
+             button — keeps the eyebrow/title props + their styling. -->
+        <slot name="header-extra" />
+        <button v-if="closable" type="button" class="ui-modal__close" :aria-label="closeLabel" @click="close">
+          <Icon name="Close" :size="14" />
+        </button>
+      </header>
 
-        <div class="ui-modal__body">
-          <slot />
-        </div>
+      <div class="ui-modal__body">
+        <slot />
+      </div>
 
-        <footer v-if="slots.footer" class="ui-modal__footer">
-          <slot name="footer" />
-        </footer>
-      </DialogContent>
-    </DialogPortal>
-  </DialogRoot>
+      <footer v-if="slots.footer" class="ui-modal__footer">
+        <slot name="footer" />
+      </footer>
+    </QCard>
+  </QDialog>
 </template>
 
 <style scoped>
-.ui-modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  /* NO scrim dim and NO backdrop blur — the user ruled BOTH off (2026-07-19).
-     The modal's own border + shadow do the separating. The overlay ELEMENT
-     stays: it still blocks interaction with the page behind and carries reka's
-     outside-click semantics (onOutside above). Only its visuals are gone. */
-  background: transparent;
-  animation: ui-modal-overlay-in 0.16s ease-out;
-}
-.ui-modal-overlay[data-state="closed"] { animation: ui-modal-overlay-out 0.16s ease-in forwards; }
-@keyframes ui-modal-overlay-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes ui-modal-overlay-out { from { opacity: 1; } to { opacity: 0; } }
-
+/* The overlay (QDialog's root) and the open/close animation: the kit's theme,
+   ../../quasar/theme.css, "Modal". */
 .ui-modal {
   position: fixed;
   top: 50%;
@@ -227,16 +216,10 @@ const contentStyle = computed(() => {
   border: 1px solid var(--border);
   border-radius: var(--r-card, var(--r-md, 10px));
   box-shadow: var(--shadow-3, var(--shadow-2, 0 12px 40px rgba(0, 0, 0, 0.2)));
-  animation: ui-modal-in 0.18s ease-out;
-}
-.ui-modal[data-state="closed"] { animation: ui-modal-out 0.16s ease-in forwards; }
-@keyframes ui-modal-in {
-  from { opacity: 0; transform: translate(-50%, -48%) scale(0.98); }
-  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-}
-@keyframes ui-modal-out {
-  from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  to   { opacity: 0; transform: translate(-50%, -48%) scale(0.98); }
+  /* QDialog caps its content's width and promotes it to a layer of its own
+     (will-change: scroll-position, which costs its text the sub-pixel smoothing) */
+  max-width: none;
+  will-change: auto;
 }
 /* Once dragged, left/top own the position: kill the centring transform AND the
    animation — the close keyframe animates transform back toward the centre and

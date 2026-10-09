@@ -6,7 +6,7 @@
 // Dark mode needs no bridge: the kit's controls take every colour from the appearance engine's
 // live CSS variables (tokens.css, switched by <html data-theme>), so Quasar's Dark plugin stays
 // off and Quasar's light-mode colours never show — theme.css restates each one Quasar sets.
-import { IconSet, Quasar } from "quasar";
+import { IconSet, Notify, Quasar } from "quasar";
 import { createApp } from "vue";
 import iconSet from "./iconSet.js";
 
@@ -15,8 +15,9 @@ export function installQuasarTheme() {
 }
 
 // Quasar's options for an app Quasar's CLI doesn't start: the settings every app's
-// quasar.config.js gives its `framework` (ripple off — the guard checks it) plus the icon set.
-export const QUASAR_TEST_OPTIONS = { config: { ripple: false }, iconSet };
+// quasar.config.js gives its `framework` (ripple off, the Notify plugin the toasts run on — the
+// guard checks both) plus the icon set.
+export const QUASAR_TEST_OPTIONS = { config: { ripple: false }, plugins: { Notify }, iconSet };
 
 // A unit test that mounts a component made of the kit's controls creates its app with this
 // instead of Vue's createApp: the same app, with Quasar installed as Quasar's CLI installs it in

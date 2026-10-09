@@ -123,6 +123,8 @@ export const FAMILY_LABELS = {
     eyebrow: "Optional",
     title: "Set up AI features",
     body: "{appName}'s AI runs where you choose — on this PC, private and free, or through an online provider. You can set this up anytime from the AI page.",
+    // the body where the app has no local engine (installLlmUi's capabilities — the phone)
+    bodyOnline: "{appName}'s AI runs through an online provider you choose, with your own key. You can set this up anytime from the AI page.",
     quickSetup: "Run Quick Setup",
     quickSetupSub: "Local — uses this PC, private & free",
     connectProvider: "Connect an online provider",

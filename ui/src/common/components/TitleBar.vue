@@ -42,7 +42,8 @@ onBeforeUnmount(() => stopAfterEach?.());
       v-tooltip.bottom="canBack ? 'Back' : 'Back (no history)'" @click="router.back()">
       <Icon name="ChevLeft" :size="16" />
     </button>
-    <button class="iconbtn lu-titlebar-btn" :disabled="!canForward"
+    <!-- lu-titlebar-forward: a hook for an app that leaves Forward out (JustWrite's phone). -->
+    <button class="iconbtn lu-titlebar-btn lu-titlebar-forward" :disabled="!canForward"
       v-tooltip.bottom="canForward ? 'Forward' : 'Forward (no history)'" @click="router.forward()">
       <Icon name="ChevRight" :size="16" />
     </button>

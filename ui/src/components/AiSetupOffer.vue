@@ -12,13 +12,16 @@ import AppModal from "../common/components/AppModal.vue";
 import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
 import { familyLabels } from "../common/services/familyLabels.js";
+import { llmUiCapabilities } from "../installLlmUi.js";
 
 const props = defineProps({ appName: { type: String, default: "This app" } });
 const emit = defineEmits(["close", "quick-setup", "connect-provider"]);
 const L = familyLabels.aiOffer;
+// A host with no local engine (installLlmUi's capabilities) offers only the online providers.
+const localOn = llmUiCapabilities().localEngine !== false;
 const modal = ref(null);
 
-const body = () => (L.body || "").replace("{appName}", props.appName);
+const body = () => ((localOn ? L.body : L.bodyOnline) || "").replace("{appName}", props.appName);
 
 // Close via AppModal so the leave transition plays, then the parent v-if drops us.
 function dismiss() {
@@ -39,7 +42,7 @@ function onConnectProvider() {
     <p class="lu-aso-body">{{ body() }}</p>
 
     <div class="lu-aso-options">
-      <button type="button" class="lu-aso-opt" @click="onQuickSetup">
+      <button v-if="localOn" type="button" class="lu-aso-opt" @click="onQuickSetup">
         <span class="lu-aso-ic"><Icon name="Cpu" :size="20" /></span>
         <span class="lu-aso-txt">
           <b>{{ L.quickSetup }}</b>

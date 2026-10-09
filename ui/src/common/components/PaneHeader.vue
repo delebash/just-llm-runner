@@ -48,4 +48,10 @@ defineProps({
   margin: 0;
 }
 .pane-actions { display: flex; gap: 6px; align-items: center; }
+/* At phone width (Quasar's xs: under 600px — `$breakpoint-xs-max`) the title keeps its row, with
+   the help button, and the actions wrap on the row below. */
+@media (max-width: 599.98px) {
+  .pane-header { flex-wrap: wrap; row-gap: 8px; padding: 12px 16px; }
+  .pane-actions { order: 3; flex-basis: 100%; flex-wrap: wrap; }
+}
 </style>

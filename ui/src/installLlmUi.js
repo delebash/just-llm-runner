@@ -29,16 +29,19 @@ import LlmUiHosts from "./components/LlmUiHosts.vue";
 import { installQuasarTheme } from "./quasar/install.js";
 
 // What this app's LLM stack can do. Declared by the host, read by the kit — an app
-// that has no embedding features says so ONCE here, instead of switching off each
-// surface that would have shown one.
-const _capabilities = { embeddings: true };
+// that has no embedding features, or no local engine, says so ONCE here, instead of
+// switching off each surface that would have shown one.
+//   embeddings: false  — no embedding features (docgen; JustWrite's phone): the catalog's
+//                        embedding slot (`_copyFor`), the Set-as-default dialog's embed
+//                        block and Quick Setup's embed step hide.
+//   localEngine: false — online providers only (JustWrite's phone, whose in-app server has
+//                        no llama.cpp runner): the AI page's Local scope, its Quick Setup,
+//                        the machine strip and the engine console hide, the first-run offer
+//                        keeps only "connect a provider", and warm-on-boot never runs — so
+//                        nothing asks for the runner's or the hardware probe's routes.
+const _capabilities = { embeddings: true, localEngine: true };
 
-/** What the host declared. NOTHING IN THE KIT READS THIS YET — today `embeddings:
- *  false` is honoured by mapping it onto the catalog's `showEmbedding` flag (see
- *  `_copyFor`), which hides the slot while model rows still ship `embedPlacement` /
- *  `embedLeftoverMb` for an app that has no embeddings. This accessor is the seam the
- *  rest of that job hangs off: a kit surface should ask here rather than take another
- *  copy flag. Stated plainly so nobody reads the export as a finished contract. */
+/** What the host declared — a kit surface asks here rather than take another copy flag. */
 export function llmUiCapabilities() {
   return { ..._capabilities };
 }
@@ -74,7 +77,7 @@ function warnNoOpener() {
  *                           (band caption · confirm title · model hint · bar roles ·
  *                           done body · onApplied hook) — canon words stay in the
  *                           labels store, never here
- * @param opts.capabilities  e.g. `{ embeddings: false }`
+ * @param opts.capabilities  e.g. `{ embeddings: false, localEngine: false }` (above)
  * @param opts.labAdapters   per-FEATURE Lab adapters `{ featureKey: { run, render,
  *                           configExtra } }` — the app's real pipeline behind that
  *                           feature's Lab columns (see services/labAdapters.js)

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Shared v-tooltip directive. Floating UI handles positioning (flip + shift
 // fallbacks) so a tooltip near the viewport edge bounces to a side that fits.
-// Delay-debounced show on hover OR focus, instant hide on click. App-agnostic
+// Delay-debounced show on a mouse hover OR keyboard focus (never a tap), instant hide on click. App-agnostic
 // (styles ride on the global .ui-tooltip rule in common/styles.css). Supersedes
 // the per-app services/tooltip.js forks.
 //
@@ -114,6 +114,14 @@ function setupState(el, content, placement) {
     show();
   };
 
+  // A tooltip answers a mouse (or pen) hover, never a tap: a touch has no hover, and a tap's
+  // compatibility mouse events left the tooltip of the button just tapped standing over the
+  // screen it opened (the phone, 2026-10-09).
+  const onPointerEnter = (e) => {
+    if (e.pointerType === "touch") return;
+    show();
+  };
+
   const hide = () => {
     clearTimeout(showTimer);
     if (!tooltipEl) return;
@@ -136,16 +144,16 @@ function setupState(el, content, placement) {
     show, hide,
     destroy() {
       killNow();
-      el.removeEventListener("mouseenter", show);
-      el.removeEventListener("mouseleave", hide);
+      el.removeEventListener("pointerenter", onPointerEnter);
+      el.removeEventListener("pointerleave", hide);
       el.removeEventListener("focus", onFocus);
       el.removeEventListener("blur", hide);
       el.removeEventListener("click", killNow);
     },
   };
 
-  el.addEventListener("mouseenter", show);
-  el.addEventListener("mouseleave", hide);
+  el.addEventListener("pointerenter", onPointerEnter);
+  el.addEventListener("pointerleave", hide);
   el.addEventListener("focus", onFocus);
   el.addEventListener("blur", hide);
   el.addEventListener("click", killNow);

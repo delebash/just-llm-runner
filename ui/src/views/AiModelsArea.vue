@@ -54,6 +54,10 @@ const { engineState: engState, checkForUpdate, refreshEngine, updateInfo: engine
 // app-side. No label/entries → no extra tabs.
 // A no-embeddings host hides every embed affordance (the capability, not per-flag).
 const embedsOn = llmUiCapabilities().embeddings !== false;
+// A host with no local engine (the phone: online providers only) hides the local half — the
+// Local scope and its Quick Setup, the machine strip, the engine console — and never asks the
+// engine or the hardware probe (those routes do not exist there).
+const localOn = llmUiCapabilities().localEngine !== false;
 
 const props = defineProps({
   appTabLabel: { type: String, default: "" },
@@ -134,7 +138,7 @@ const tabDefs = computed(() => {
   }
   defs.push(...floating);
   defs.push({ id: "usage", label: TAB_LABELS.usage, kit: true });
-  defs.push({ id: "console", label: TAB_LABELS.console, kit: true });
+  if (localOn) defs.push({ id: "console", label: TAB_LABELS.console, kit: true });
   for (const t of anchored) {
     const at = defs.findIndex((d) => d.id === t.after);
     // An unknown anchor falls back to the legacy slot's neighborhood (before
@@ -166,7 +170,7 @@ watch(() => props.initialTab, (t) => {
 });
 // Local vs Online is a TAB on the provider list (not two stacked eyebrow groups) —
 // deliberately NOT named `tab`, which is the page subnav above.
-const providerScope = ref(props.initialProviderScope === "online" ? "online" : "local");
+const providerScope = ref(!localOn || props.initialProviderScope === "online" ? "online" : "local");
 const providers = ref([]);
 // The box probe comes from the SHARED singleton (2026-07-27) — this file used to hold
 // TWO independent fetches of /v1/llm-runner/hardware, the strip below and the change
@@ -431,7 +435,7 @@ async function loadAll() {
   loading.value = true; error.value = "";
   try {
     await loadProviders();
-    await Promise.all([loadHardware(), loadUsage()]);
+    await Promise.all([localOn ? loadHardware() : null, loadUsage()]);
   } catch (e) {
     error.value = `Couldn't load: ${e.message}`;
   } finally {
@@ -585,14 +589,16 @@ onMounted(() => {
   // the providers tab's template, so the ref is only populated on the render
   // that follows the resolve — it is still null on the resolve tick itself.
   loadAll().then(async () => {
-    if (!props.autoOpenQuickSetup) return;
+    if (!props.autoOpenQuickSetup || !localOn) return;
     await nextTick();
     qsRef.value?.openWizard?.();
   });
-  startResPoll(); // the strip's live VRAM stat + the debug snapshot's resident set
-  refreshEngine(); // the Built-in row's Install/Update/Uninstall state
-  checkForUpdate(); // A5 — policy-gated (Off = silent); notify surfaces a line, never auto-applies
-  checkHardwareChange(); // Task E — gpu/vram change → one dismissible toast
+  if (localOn) {
+    startResPoll(); // the strip's live VRAM stat + the debug snapshot's resident set
+    refreshEngine(); // the Built-in row's Install/Update/Uninstall state
+    checkForUpdate(); // A5 — policy-gated (Off = silent); notify surfaces a line, never auto-applies
+    checkHardwareChange(); // Task E — gpu/vram change → one dismissible toast
+  }
   refreshApplied(); // QC-20 — the provider rows' Default tag needs the dominant pair at open
 });
 </script>
@@ -607,7 +613,7 @@ onMounted(() => {
          wrap into a ragged second row whose cells lined up under nothing. The
          grid gives every cell the same track width, so a wrapped row is a tidy
          second row of the same columns at any window size. -->
-    <div v-if="hwLabel" class="lu-hwstrip">
+    <div v-if="localOn && hwLabel" class="lu-hwstrip">
       <div class="lu-hwstats">
         <div class="lu-hwstat"><span class="lu-hwstat-k">OS</span><span class="lu-hwstat-v">{{ hwLabel.os }}</span></div>
         <div class="lu-hwstat"><span class="lu-hwstat-k">CPU</span><span class="lu-hwstat-v">{{ hwLabel.cpu }}</span></div>
@@ -705,7 +711,7 @@ onMounted(() => {
            hardware-change toast's action, and the auto-open deep link). A v-if here
            would unmount the wizard on the Online tab and turn both into silent
            optional-chain no-ops. -->
-      <div v-show="providerScope === 'local'" class="lu-qs-band">
+      <div v-if="localOn" v-show="providerScope === 'local'" class="lu-qs-band">
         <component :is="props.wizard || QuickSetup" ref="qsRef" inline @changed="loadProviders" @closed="onQuickSetupClosed" />
       </div>
 
@@ -723,7 +729,7 @@ onMounted(() => {
         <!-- Local vs Online are TABS (user, 2026-07-19), not two stacked eyebrow
              groups — ONE row template renders the scope you're standing on, so the
              two near-duplicate lists that used to drift are gone. -->
-        <UiSegmented v-model="providerScope" variant="connected" class="lu-scope"
+        <UiSegmented v-if="localOn" v-model="providerScope" variant="connected" class="lu-scope"
           :options="[
             { value: 'local', label: 'Local · free', sublabel: 'Runs on your machine — no API key, no per-token cost' },
             { value: 'online', label: 'Online · metered', sublabel: 'Your account — API key + URL; pay per token' },

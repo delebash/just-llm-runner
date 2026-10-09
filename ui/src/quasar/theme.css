@@ -611,8 +611,11 @@
    sub-pixel text, so the root paints the page colour (an app's own root class may paint another —
    JustVoice's text went grey on a transparent one). QLayout's inline min-height
    is the window's height in unzoomed pixels, which the UI zoom (common/services/appearance.js)
-   makes taller than the window; !important is the one way past an inline style. */
-:where(#q-app > .q-layout) { position: fixed; inset: 0; overflow: hidden; min-height: 0 !important; background: var(--bg); }
+   makes taller than the window; !important is the one way past an inline style. `clip`, not
+   `hidden`: a hidden box can still be scrolled by script, and focusing a field in an overlay wider
+   than the window (the command palette at phone width) slid the whole app sideways; a clipped box
+   can't scroll at all, and paints the same (0 pixels apart, desktop screens and overlays, 2026-10-09). */
+:where(#q-app > .q-layout) { position: fixed; inset: 0; overflow: clip; min-height: 0 !important; background: var(--bg); }
 /* The page container fills the layout, Quasar's header and drawer offsets (its inline padding)
    inside that height, so a page rooted in <q-page :style-fn="pageFill"> (./page.js) is exactly the
    height under the header at any UI zoom. */

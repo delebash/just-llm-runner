@@ -17,6 +17,7 @@ import { ref } from "vue";
 import { request } from "../client.js";
 import { useRunnerModels } from "../composables/useRunnerModels.js";
 import { useModelApply } from "./modelApply.js";
+import { llmUiCapabilities } from "../installLlmUi.js";
 
 // The model being warmed ("" = none). The host splash overlay v-ifs on this.
 export const warmModelId = ref("");
@@ -26,6 +27,8 @@ export async function startWarmOnBoot({ skip } = {}) {
   // drives the renderer headless and loads its leg models itself; a warm co-load
   // rode along every leg — defect F, 2026-07-22).
   if (skip && skip()) return;
+  // A host with no local engine has nothing to warm (installLlmUi's capabilities).
+  if (llmUiCapabilities().localEngine === false) return;
   try {
     const cfg = await request("/v1/ai/engine-config");
     if (!cfg?.warmDefaultOnStartup) return; // 1. toggle off → nothing to do

@@ -348,9 +348,16 @@ where close hooks matter · a router: `app.route("/", makeXRouter(…))` after a
   by the next mutating request or the next sync, in the order they were made.
 - Slice 7 DONE — app-structure §Q.3, the kit's READMEs, the guard's `checkOneHono` (proven to fire
   on a probe), every app's CLAUDE.md / README / ARCHITECTURE lines.
-- **The conversion is complete.** Not run: a packaged installer and the headless launcher per app
-  (§8) — the suites, the in-app and emulator checks and JustVoice's real-socket run cover the
-  server; the packaging is unchanged by this move.
+- **The conversion is complete.** The packaged run (§8), 2026-10-09: `npm run build` in JustWrite,
+  JustVoice, docgen and the template (each NSIS installer built; the installers not run, so the
+  user's installed copies stay as they are); each unpacked app started on a temp data folder and
+  read over DevTools — its window on `app://<id>`, the bridge, the server's `/v1/health` 200;
+  each headless launcher (`<app>-server.cmd serve`, the exe run as Node) on a spare port —
+  `/v1/health` 200, the UI at `/`, FastAPI's 404 for an unknown route (the template has no
+  launcher). Console: none in JustWrite and the template; docgen's 409s are its "no project yet"
+  answers on an empty data folder; JustVoice's are its Google Fonts stylesheet blocked by the CSP
+  (JustVoice's TASKS, the Quasar item, OPEN 2 — older than this move) and one health call before
+  the server listened (the kit's retry covers it).
 - Repos at the start: kit `main` clean, 47 commits ahead of origin; JustVoice `main` clean, pushed;
   JustWrite `master` clean, 32 ahead; docgen `main` 9 ahead (`out/` untracked, left alone);
   `just-sqlite-sync` 1 ahead with `biome.json` modified (not this session's — left alone).

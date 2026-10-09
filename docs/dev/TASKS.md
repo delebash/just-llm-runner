@@ -60,8 +60,8 @@ BUILT:  2026-10-09 — the plan `docs/plans/2026-10-09-hono-standard.md` (the de
         ours; Actual wrote its own pair of SQLite files; libsql-js is Node-only and
         @libsql/client-wasm async; Turso pre-1.0, its browser package async-only — re-check at its
         1.0). The user: "your rec on all go" — so 1 yes, 2 yes, 3 a.
-OPEN:   nothing for the conversion (slices 1–7 built — the plan §9). Not run: a packaged installer
-        and the headless launcher per app (the packaging itself didn't change).
+OPEN:   nothing — slices 1–7 built, and the packaged run done 2026-10-09 (each app's installer
+        built, the unpacked app and the headless launcher checked — the plan §9).
 GO:     given 2026-10-09 — "your rec lets do it keeep working until the conversion is done"; the
         three pieces: "your rec on all go".
 

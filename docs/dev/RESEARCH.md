@@ -401,6 +401,26 @@ has its app-side facts):
   WebView's DevTools painted `position: sticky` layers squashed (JustWrite's AI page tab row, the
   editor toolbar's last rows) while their boxes measured right and the emulator's own display
   (`adb exec-out screencap -p`) showed them right. Pictures for review are taken with screencap.
+- **JustWrite on the iOS simulator** (*measured*, 2026-10-09, JustWrite's
+  `.github/workflows/phone-ios.yml` + `e2e/phone-ios.js`, GitHub macos-15 runner, Xcode 16.4 / iOS
+  SDK 18.5, an iPhone on iOS 18.6, WKWebView "AppleWebKit/605.1.15", Capacitor 8.5.3 on Swift
+  Package Manager): built by Quasar (`build -m capacitor -T ios --skip-pkg`) and `xcodebuild -sdk
+  iphonesimulator CODE_SIGNING_ALLOWED=NO`, driven by Appium 3.8.0 + the XCUITest driver 12.13.2
+  (WebdriverIO 9.32.0) — PASS: a fresh install shows the welcome screen from the in-app server; the
+  tutorial book is made; Chapters, a scene in the editor, Characters, AI and Settings → Sync open;
+  the book is still there after the app is quit and reopened; no page or console errors. Found:
+  the web view runs under the status bar, the Dynamic Island and the home indicator (Capacitor's
+  iOS default), and Quasar pads only a `QToolbar` first in the header — the kit's theme pads the
+  header and the page container on Quasar's own safe-area classes (Android measures 0 there: its
+  web view starts below the status bar). Appium on the runner: the booted, window-less simulator
+  needs `isHeadless` (otherwise Appium restarts it under Simulator.app and times out at 120 s);
+  the simulator has to run an iOS of the active Xcode's SDK major (the image carries iOS 26
+  runtimes beside Xcode 16.4, and a text sort of runtime names picked 26.2); the simulator's web
+  inspector lists the app as `process-App` (`additionalWebviewBundleIds`); Appium's reset, a
+  `terminate` of the not-yet-installed app, hung 6 min (`noReset` — the script uninstalls first);
+  WebDriverAgent builds in about 3 min; a whole run takes about 13 min. Quasar's own `npm install
+  @capacitor/ios` fails under npm 11's allow-scripts (`EALLOWSCRIPTS`): install it and run `cap add
+  ios` by hand, once, and commit `src-capacitor/ios`.
 - **A live SQLite file in a sync folder is a corruption risk:** SQLite's own page lists broken
   locking on network filesystems, background copies taken mid-transaction, and copying a
   database without its `-wal`/`-journal`. Joplin syncs desktop and phones through Dropbox,
@@ -554,7 +574,8 @@ do the testing"; the decisions so far and the tests' detail are JustWrite's
   3.53.4-build2 on `opfs-sahpool` through its synchronous API, session API present; the database
   survives a force-stop and an app update (reinstall); `navigator.storage.persist()` returns false;
   2,000 single 7.5 KB saves 14–27 s (7–13 ms a save, emulator), 15 MB in one transaction
-  0.23–0.9 s. **iOS not tested** (needs a Mac).
+  0.23–0.9 s. iOS: tested since on GitHub's macOS runner — the iOS 18.7 simulator (just-sqlite-sync's
+  RESEARCH, 2026-10-08) and JustWrite on iOS 18.6 ("JustWrite on the iOS simulator", above).
 - **…but webview storage is best-effort** (*web*,
   [`…-round2-phone-storage-onedrive.md`](../plans/2026-10-08-sync-research-round2-phone-storage-onedrive.md)
   §A.3): Android WebView's code always denies `persist()` (`aw_permission_manager.cc`; a WebView

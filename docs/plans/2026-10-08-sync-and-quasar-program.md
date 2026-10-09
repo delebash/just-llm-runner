@@ -79,9 +79,18 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   launcher serving the UI from the archive, the e2e 7/7 and the smoke on a copy of the real data,
   unit 590/590, server 141/141, lint, the guard (kind quasar, no violations); ten screens match
   the Electron + Vite build to within 0.02 % of their pixels except Quasar's global disabled rule
-  (kit TASKS, the Quasar item, OPEN 5). Next: the Settings → Sync screen, then the phone.
+  (kit TASKS, the Quasar item, OPEN 5). Then Settings → Sync (JustWrite 366fc62 on `quasar`; the
+  kit's `SyncPanel`, fbdb43c): the screen, the user guide `docs/sync.md`, joining with a code when
+  the other device is off, the export picker's "changed since the last export", a sync shortly
+  after start — checked on a copy of the real data. **The phone waits for a scope answer** (asked
+  of the user): which of JustWrite's features run on the phone — the server in a web worker can't
+  run the local AI runner (llama.cpp processes), the local search index's embeddings, or the
+  file-based autosave; the book itself, its images and versions, sync and remote AI providers can.
+  Fastify needs Node, so the worker gets a small router over the same route handlers and a SQLite
+  WASM implementation of the kit's database wrapper.
+- Q5: IN PROGRESS — JustVoice on Quasar, in a worktree like JustWrite.
 - Q3: after Q4–Q5 (see the order change above); its theme part is done.
-- Q5–Q6: not started.
+- Q6: not started (docgen's tree is held).
 
 ## Stops (things only the user can do)
 

@@ -25,6 +25,9 @@ export { default as UiTable } from "./components/UiTable.vue";
 export { default as UiProgress } from "./components/UiProgress.vue";
 export { default as UiColorPicker } from "./components/UiColorPicker.vue";
 export { default as UiSegmented } from "./components/UiSegmented.vue";
+export { default as UiMenu } from "./components/UiMenu.vue";
+export { default as UiMenuItem } from "./components/UiMenuItem.vue";
+export { default as UiMenuSeparator } from "./components/UiMenuSeparator.vue";
 // THE slider (2026-08-21). There was none, so 14 hand-rolled `<input
 // type="range">` grew across the family, each with its own width, its own
 // place for the number, and nowhere to say what the ends mean.
@@ -113,3 +116,4 @@ export { fmtBytes } from "./services/downloadRate.js";
 // shared composables (host-agnostic; vue-only)
 export { useRovingTabindex } from "./composables/useRovingTabindex.js";
 export { usePanelDismiss, PANEL_TOGGLE_ATTR } from "./composables/usePanelDismiss.js";
+export { useModalPopup } from "./composables/useModalPopup.js";

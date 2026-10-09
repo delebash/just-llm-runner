@@ -103,8 +103,8 @@ button:not(.ui-btn) { color: inherit; }
 /* Select: its look is the kit's Quasar theme (../quasar/theme.css) since it moved onto QSelect
    (docs/plans/2026-10-09-kit-controls-on-quasar.md). */
 
-/* ⋯ overflow menu (Reka DropdownMenu) — the model-catalog row's secondary actions.
-   GLOBAL, like .ui-select-content above, and for the SAME reason: both are Reka-
+/* ⋯ overflow menu (UiMenu, on Quasar's QMenu) — the model-catalog row's secondary actions.
+   GLOBAL, like .ui-select-content, and for the SAME reason: both are
    PORTALED to <body>, where a component's <style scoped> hash does NOT reach — a
    scoped background silently dropped and the menu rendered see-through (user,
    2026-07-24). Same surface + border + stacking as the select popover (its sibling). */

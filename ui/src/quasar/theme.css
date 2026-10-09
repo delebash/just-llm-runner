@@ -247,8 +247,10 @@
   font: inherit; color: inherit; line-height: inherit; letter-spacing: inherit; flex-wrap: nowrap;
 }
 :where(.ui-select-trigger, .ui-mselect-trigger) .q-field__append { height: auto; padding: 0; color: inherit; }
+/* pointer-events: the page behind an open select list takes no pointer (useModalPopup — Reka's
+   Select was modal; the multi-select's popover never was); the list takes it back */
 .ui-select-content {
-  z-index: 999; max-height: min(320px, 70vh); padding: 4px;
+  pointer-events: auto; z-index: 999; max-height: min(320px, 70vh); padding: 4px;
   background: var(--surface); border: 1px solid var(--border-strong, var(--border));
   border-radius: var(--r-sm, 6px); box-shadow: var(--shadow-2, 0 8px 24px rgba(0,0,0,.12));
   overflow-y: auto; overflow-x: hidden; animation: ui-select-in .1s ease-out;

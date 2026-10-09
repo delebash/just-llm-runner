@@ -118,7 +118,8 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   on QSelect) DONE, the three apps' end-to-end suites green. Slice 6 (segmented, tab strip,
   slider, progress, the colour picker's popover) DONE. Slice 7 (the modal, the prompt/confirm
   dialogs, the help drawer, the toasts on Notify, the feature chip's popover) DONE, the three apps'
-  end-to-end suites green. Next: 7b (the remaining Reka menus), 8 (the table), 9 (clean-up).
+  end-to-end suites green. Slice 7b (the remaining Reka menus: the kit's new UiMenu, JustWrite's
+  StatusSelect) DONE. Next: 8 (the table), 9 (clean-up).
 - Q6: DONE 2026-10-09 — docgen on Quasar, branch `quasar` in the worktree `../docgen-quasar`
   (dce418d), fast-forwarded into docgen's main under the go ("keep going using yo9ur recs … dont
   stop", then "go"); the held tree went into a named stash first (the rec, kit TASKS question 5).

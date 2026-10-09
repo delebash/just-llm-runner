@@ -22,6 +22,7 @@
 // `title` on the box.
 import { QSelect } from "quasar";
 import { computed, ref, watch } from "vue";
+import { useModalPopup } from "../composables/useModalPopup.js";
 
 const props = defineProps({
   modelValue: { type: [String, Number, Boolean, Object, null], default: null },
@@ -54,6 +55,8 @@ const selectedLabel = computed(() => {
 });
 
 const open = ref(false);
+// while the list is open the page behind takes no pointer, as under Reka (useModalPopup)
+useModalPopup(open);
 const field = ref(null);
 // `title` goes on the box (QSelect hands other attributes to its hidden focus input)
 watch([field, () => props.title], ([f, title]) => {

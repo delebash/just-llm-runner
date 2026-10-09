@@ -106,7 +106,7 @@ control install Quasar with the kit's `QUASAR_TEST_OPTIONS`.
 | `AppModal`, `AppDialog`, `HelpDrawer` | `QDialog` + `QCard` | `closable`/`dismissable` → `no-esc-dismiss`/`no-backdrop-dismiss`; the drag-by-header stays the kit's; `confirmDialog`/`promptDialog` keep their promises; the help drawer (a Reka dialog too) moves with them (slice 7) |
 | `Toast` + `pushToast` | Quasar's `Notify` plugin | `pushToast`'s signature kept; the `Toast` host goes (Notify mounts its own) |
 | `LuFeatureChip`'s popover | `QMenu` | it opens inside modals, where Quasar's focus trap would close a Reka popover (slice 7) |
-| the remaining Reka menus — `LuModelCatalog`'s row menu, JustVoice's row menus (`SpeechEnginesTab`, `StudioScript`, `PersonasView`, `VoicesView`), JustWrite's `StatusSelect` | `QMenu`, `QSelect` | found in slice 7: the map named the kit's `Ui*` controls only (slice 7b) |
+| the remaining Reka menus — `LuModelCatalog`'s row menu, JustVoice's row menus (`SpeechEnginesTab`, `StudioScript`, `PersonasView`, `VoicesView`, two mocks), JustWrite's `StatusSelect` | a new kit `UiMenu` (+ `UiMenuItem`, `UiMenuSeparator`) on `QMenu`; `QSelect` | found in slice 7: the map named the kit's `Ui*` controls only (slice 7b) |
 
 The kit's family pieces built from these controls (the AI settings, the task strip, the model
 catalog, the Sync panel, …) convert by themselves, because they use the controls.
@@ -208,7 +208,8 @@ not `UiSlider` (JustVoice's global `input[type="range"]` rules now reach only it
 colours (dark ink, per-kind intents in `styles.css`) never reached a toast — vue-sonner re-declared
 its own palette on its list below JustWrite's `.ui-toaster` — so its toasts showed sonner's light
 look; slice 7 kept that look and dropped the colour block (the kit's `--ui-toast-*` properties
-would recolour them).
+would recolour them). JustVoice's `.app-modal-*` rules (styles.css, "Modal shell (Reka Dialog)") style
+classes no template has.
 
 ## 5 · Slices and how each is checked
 
@@ -502,3 +503,35 @@ for the opening focus, sub-pixel edges and 1/255 rounding; 32 behaviour checks t
 builds but the opening focus, aria-modal, the chip popover's keyboard use and Esc in a modal, and
 the toast's role, as above; JustVoice's smoke, docgen's e2e 20/20 on the real project, JustWrite's
 e2e 7/7.
+
+**Slice 7b — the remaining Reka menus: a kit `UiMenu` on `QMenu` for the row menus, JustWrite's
+`StatusSelect` on `QSelect`** (Reka UI no longer under any of the family's screens).
+
+- **`UiMenu`, `UiMenuItem`, `UiMenuSeparator`** (the kit's, `common/components/`) keep Reka's
+  DropdownMenu shape — a trigger, items with `@select` (preventDefault keeps it open), separators
+  — and its state attributes (`data-highlighted`, `data-disabled`, the trigger's `data-state`), so
+  the hosts' `.ev-menu*` and `.lu-mm*` styles read them unchanged; the seven menus (the kit's model
+  catalog, JustVoice's four row menus and two mocks) converted by their own markup. QMenu places,
+  closes and gives the focus back; the kit adds the menu keyboard (↓/Enter/Space open on the first
+  item, ↑ on the last; arrows, Home/End and typing move; Tab stays) — under Reka the focus stayed on
+  the trigger and the keys did little. QMenu toggles on its anchor's click and again on its Enter
+  keyup, which closed a menu opened with Enter on a native button, so the trigger toggles itself.
+- **Modal like Reka's** (the kit's `useModalPopup`): Reka's DropdownMenu and Select made the page
+  take no pointer while open; QMenu doesn't, and a click outside a row's menu also opened the row
+  behind. The menus, `UiSelect` and `StatusSelect` hold `pointer-events: none` on `<body>` while
+  open (their lists take it back), so the first outside click only closes them and nothing behind
+  them hovers. The multi-select was a non-modal Reka popover and stays live.
+- **`StatusSelect`** is a QSelect like `UiSelect`: its control the pill, its items the old markup
+  with Reka's attributes; QSelect's own letter-spacing and line height on the value are reset.
+  Its menu's box now shows — the scoped `.status-menu` rule never reached Reka's teleported list,
+  which showed see-through over the page.
+- **Left as it is:** the menus open at fractional pixels (QMenu), as the selects already did.
+
+Checked: lint; the apps' unit tests (590, 183, 3); the 30 screens (live values only); 16 states — the
+row menu (trigger, hovered, open, open trigger, an item and the danger item hovered, opened from ↓
+and from Enter, dark; JustVoice's Voices menu), the status pill (closed, hovered, open) and its list
+(open, an item hovered, dark) — the same but for the sub-pixel placement, the keyboard-opened menu
+now on its first item, and the status list's box; 21 behaviour checks the same on both builds but the
+menu keyboard, as above; slice 5's 16 select checks the same again with the selects modal. The
+model catalog's menu (inside the built-in provider's form) wasn't reached by the scripts — it is the
+same UiMenu the JustVoice menus checked.

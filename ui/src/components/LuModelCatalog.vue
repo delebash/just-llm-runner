@@ -46,10 +46,9 @@ import DownloadBar from "../common/components/DownloadBar.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 import { openExternal, openPath } from "../common/services/external.js";
 import { pushToast } from "../common/services/toastBridge.js";
-import {
-  DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal,
-  DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
-} from "reka-ui";
+import UiMenu from "../common/components/UiMenu.vue";
+import UiMenuItem from "../common/components/UiMenuItem.vue";
+import UiMenuSeparator from "../common/components/UiMenuSeparator.vue";
 
 // Shared runner-models state (models / status / load / progress) — one source for the
 // grid + this list. Everything comes from the ONE singleton so the two surfaces never drift.
@@ -1411,25 +1410,21 @@ refreshApplied();
                   </template>
                 </template>
                   <!-- ⋯ overflow — the secondary actions, portaled so the menu escapes the
-                       list's overflow:auto clip (Reka DropdownMenu: focus/Esc/click-outside built in).
+                       list's overflow:auto clip (the kit's UiMenu: focus, keys, Esc and click-outside built in).
                        Load / Unload are NOT here (user, 2026-08-14) — they are row buttons
                        beside the default toggle, where everyday verbs belong. -->
-                  <DropdownMenuRoot>
-                    <DropdownMenuTrigger class="lu-mkebab" aria-label="More actions" title="More actions">⋯</DropdownMenuTrigger>
-                    <DropdownMenuPortal>
-                      <DropdownMenuContent class="lu-mmenu" align="end" :side-offset="4" :collision-padding="8">
-                        <DropdownMenuItem v-if="m.status === 'loaded' || m.status === 'disk'" class="lu-mmi" @select="tuning = m">Tune &amp; measure</DropdownMenuItem>
-                        <DropdownMenuItem v-if="m.status === 'error' || m.status === 'disk' || m.status === 'loaded'" class="lu-mmi" @select="redownload(m)">Re-download</DropdownMenuItem>
-                        <!-- Open folder · View on Hugging Face — the SAME two verbs,
-                             in the same order, as JustVoice's speech-model menu. -->
-                        <DropdownMenuItem v-if="m.localDir" class="lu-mmi" @select="openModelFolder(m)">Open folder</DropdownMenuItem>
-                        <DropdownMenuItem v-if="cardUrlOf(m)" class="lu-mmi" @select="viewOnHf(m)">View on Hugging Face</DropdownMenuItem>
-                        <DropdownMenuSeparator v-if="hasUpperMenu(m)" class="lu-mmsep" />
-                        <DropdownMenuItem v-if="m.downloaded && m.status !== 'loading' && m.status !== 'stopping'" class="lu-mmi lu-mmi-danger" @select="freeDownload(m)">Delete downloaded model</DropdownMenuItem>
-                        <DropdownMenuItem class="lu-mmi lu-mmi-danger" @select="deleteModel(m)">Delete from catalog</DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenuPortal>
-                  </DropdownMenuRoot>
+                  <UiMenu label="More actions" trigger-class="lu-mkebab" content-class="lu-mmenu" align="end">
+                    <template #trigger>⋯</template>
+                    <UiMenuItem v-if="m.status === 'loaded' || m.status === 'disk'" class="lu-mmi" @select="tuning = m">Tune &amp; measure</UiMenuItem>
+                    <UiMenuItem v-if="m.status === 'error' || m.status === 'disk' || m.status === 'loaded'" class="lu-mmi" @select="redownload(m)">Re-download</UiMenuItem>
+                    <!-- Open folder · View on Hugging Face — the SAME two verbs,
+                         in the same order, as JustVoice's speech-model menu. -->
+                    <UiMenuItem v-if="m.localDir" class="lu-mmi" @select="openModelFolder(m)">Open folder</UiMenuItem>
+                    <UiMenuItem v-if="cardUrlOf(m)" class="lu-mmi" @select="viewOnHf(m)">View on Hugging Face</UiMenuItem>
+                    <UiMenuSeparator v-if="hasUpperMenu(m)" class="lu-mmsep" />
+                    <UiMenuItem v-if="m.downloaded && m.status !== 'loading' && m.status !== 'stopping'" class="lu-mmi lu-mmi-danger" @select="freeDownload(m)">Delete downloaded model</UiMenuItem>
+                    <UiMenuItem class="lu-mmi lu-mmi-danger" @select="deleteModel(m)">Delete from catalog</UiMenuItem>
+                  </UiMenu>
                 </div>
         </template>
       </UiTable>
@@ -1679,9 +1674,9 @@ refreshApplied();
 .lu-macts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; justify-content: flex-end; }
 /* ⋯ overflow trigger — NOT portaled (it lives in the row), so it stays scoped. The
    portaled menu CONTENT (.lu-mmenu / .lu-mmi / .lu-mmsep) moved to common/styles.css
-   beside .ui-select-content: Reka teleports the content to <body>, where a component's
+   beside .ui-select-content: the menu teleports its content to <body>, where a component's
    <style scoped> hash doesn't reach — the background/border silently dropped and the
-   menu rendered see-through (user, 2026-07-24). UiSelect learned this same lesson (its
+   menu rendered see-through (user, 2026-07-24, under Reka; UiMenu's QMenu does the same). UiSelect learned this same lesson (its
    content styles are global, not scoped); this restores the parity. */
 .lu-mkebab { all: unset; cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 7px; border-radius: 6px; color: var(--muted); }
 .lu-mkebab:hover, .lu-mkebab[data-state="open"] { background: var(--surface-2); color: var(--ink); }

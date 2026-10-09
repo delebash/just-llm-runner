@@ -743,6 +743,17 @@ step Q3):
     unless `group: false`, colours text white unless `textColor` is given as undefined, gives each
     toast `role="alert"` unless `attrs` say otherwise, and stacks a position's toasts in a column
     (bottom: the newest last).
+- **Reka UI's popups, and QMenu, against the pointer** (*code* + *measured*, 2026-10-09): Reka's
+  DropdownMenu and Select are modal — `pointer-events: none` on `<body>` while open, the list
+  taking it back — so the first outside click only closes them and the page shows no hover
+  meanwhile; Reka's Popover (the old multi-select) is not. QMenu (and QSelect's list) leave the
+  page live: a click outside a row's ⋯ menu on JustVoice's Personas also opened the row. Quasar's
+  click-outside still fires when `<body>` takes no pointer (the target is then `<html>`). In
+  JustVoice's row menus Reka's keyboard did little: opened from the keyboard the focus stayed on
+  the trigger, ↑ didn't open, and Enter on an item after ↓ did nothing. A scoped rule on Reka's
+  SelectContent root never applied (no scope id there): JustWrite's status menu showed with no
+  box, see-through over the page. QSelect gives its value text `letter-spacing: 0.00937em` and its
+  own line height (`.q-field__native`).
 - **vue-sonner 2.0.9's look** (*code*, `lib/index.css`; *measured* against the kit's Notify toasts,
   0 pixels apart): 356px toasts, 16px padding, 1px border, radius 8, `0 4px 12px rgba(0,0,0,.1)`,
   13px in the system font stack, 6px gaps; light palette normal `#fff`/`hsl(0,0%,93%)`/

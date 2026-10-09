@@ -20,10 +20,16 @@
 //
 //   <UiTabStrip v-model="active" :tabs="[{ id, label }]" />
 //
-// Deliberately plain <button>s in a <nav> with `aria-current`, not the full
-// WAI-ARIA tab pattern: that needs role="tab"/"tabpanel"/aria-controls wired to
-// the panels, which live in the consumer. Half of it would be worse than none.
-// Arrow-key navigation is a fair follow-up (the kit has useRovingTabindex).
+// Quasar's QTabs + QTab underneath (the kit's controls on Quasar —
+// docs/plans/2026-10-09-kit-controls-on-quasar.md): QTabs is the strip (.ui-tabstrip), each QTab
+// a tab (.ui-tabstrip__tab, `.on` when chosen), and the look is the kit's theme
+// (../../quasar/theme.css, "Tab strip"). Quasar's tab pattern comes with it: role="tablist" and
+// "tab" with aria-selected, and one tab stop with arrow keys / Home / End between the tabs (a tab
+// is a focusable <div> now, with the kit buttons' focus ring). A strip
+// too narrow for its tabs still wraps them onto more rows (the theme keeps Quasar's sideways
+// scrolling off). The panels live in the consumer, so there is no tabpanel wiring.
+import { QTab, QTabs } from "quasar";
+
 defineProps({
   // [{ id, label }] — the same shape SettingsShell has always taken.
   tabs: { type: Array, default: () => [] },
@@ -34,39 +40,18 @@ const emit = defineEmits(["update:modelValue"]);
 </script>
 
 <template>
-  <nav class="ui-tabstrip" :aria-label="ariaLabel">
-    <button
-      v-for="t in tabs" :key="t.id" type="button"
+  <QTabs
+    class="ui-tabstrip"
+    :model-value="modelValue"
+    align="left"
+    breakpoint="0"
+    no-caps
+    :aria-label="ariaLabel"
+    @update:model-value="(id) => emit('update:modelValue', id)"
+  >
+    <QTab
+      v-for="t in tabs" :key="t.id" :name="t.id" :label="t.label" :ripple="false"
       class="ui-tabstrip__tab" :class="{ on: t.id === modelValue }"
-      :aria-current="t.id === modelValue ? 'page' : undefined"
-      @click="emit('update:modelValue', t.id)"
-    >{{ t.label }}</button>
-  </nav>
+    />
+  </QTabs>
 </template>
-
-<style scoped>
-/* JustWrite's Settings values, verbatim — one look, every app, every strip. */
-.ui-tabstrip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.ui-tabstrip__tab {
-  appearance: none;
-  background: none;
-  border: 0;
-  /* The 2px underline sits ON the strip's 1px rule, not under it. */
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  padding: 10px 16px;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink-2);
-  cursor: pointer;
-}
-.ui-tabstrip__tab:hover { color: var(--ink); }
-.ui-tabstrip__tab.on { color: var(--ink); border-bottom-color: var(--accent); }
-</style>

@@ -704,6 +704,38 @@ step Q3):
   a multiple select opens scrolled to its first chosen option, and the virtual scroll re-anchors
   once (~65ms) after the first scroll; `toggleOption` moves focus to the trigger. Its root is a
   `<label>`, so a click on a non-interactive element inside it also activates the focus input.
+- **QBtnToggle, QTabs, QSlider, QLinearProgress, QMenu** (*code* + *measured*, 2026-10-09):
+  - QBtnToggle spreads each option's `attrs` into its QBtn's props (after its own `aria-pressed`)
+    and calls an option's `slot` with no props; it emits nothing for a click on the chosen option
+    unless `clearable` (then `update:modelValue(null)` and `clear`); `.q-btn-toggle` is
+    `position: relative`. QBtn calls a `keydown` listener before its own Enter/Space handling and
+    skips that handling when the listener prevented the default.
+  - QTab is a `<div role="tab" tabindex>` (`.q-focusable` sets `outline: 0`); QTabs keeps one tab
+    stop and moves focus with the arrows, Home and End. QTabs never wraps: when its tabs' widths
+    add up past its own it scrolls sideways with arrow icons; `align` defaults to `center` and a
+    strip narrower than `breakpoint` (600px) stretches its tabs.
+  - QSlider maps a pointer against its root's box (`(x − left) / width`) and draws the thumb at
+    that fraction of its track; its default thumb is a ringed 12px circle in a 20px box; its key
+    steps are one step (arrows) and ten (Page Up/Down) — the native range's too.
+  - QLinearProgress draws the fill as a full-width bar scaled to the value (`scaleX`); its
+    `animation-speed` (default 2100ms) also times the determinate fill's transition; its root is
+    `transform: scale(1)`.
+  - QMenu (2.35) places itself with CSS anchor positioning (`position-anchor`, `anchor()`), at
+    fractional pixels; it focuses the menu when it opens and gives focus back to its target when
+    it closes; Esc closes it wherever the focus is.
+- **Chrome's native range with `accent-color`** (*measured*, Playwright's Chromium 149.0.7827, 2026-10-09 — the
+  look `UiSlider` keeps): the track is an 8px pill with a 1px edge, inset 1px from the input's
+  ends; the 16px thumb's centre travels from 8px inside one end to 8px inside the other; a click
+  puts the thumb's centre at the pointer. Two palettes, chosen by the accent alone (not by
+  `color-scheme`): the dark one when the accent's contrast against white is below about 3.4
+  (between 3.36, dark, and 3.47, light, over 40 accents of oklch lightness 0.538–0.7) — the
+  family's light-theme accent (L 0.538) is always light, its dark-theme one (L 0.673) always dark.
+  Light: the track #efefef, the edge #767676 at half strength over the fill (#b2b2b2 on the track);
+  hovering the input darkens the accent to × 0.7 and the track to #e5e5e5 (edge from #4f4f4f);
+  pressing lightens the accent to × 1.3 and the track to #f5f5f5 (edge from #8d8d8d). Dark: the
+  track #3b3b3b and a solid edge #858585 (hover #acacac, pressed #6e6e6e); hovering mixes the
+  accent 22% with white, pressing 22% with black. Either way the thumb takes the hover colour
+  only when it is hovered itself.
 
 ---
 

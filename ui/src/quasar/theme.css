@@ -335,3 +335,162 @@
 .ui-mselect-item.is-checked .ui-mselect-box { background: var(--accent); border-color: var(--accent); }
 .ui-mselect-tick { display: inline-flex; color: var(--on-accent, #fff); }
 .ui-mselect-empty { padding: 10px; font-size: 12.5px; color: var(--muted, var(--ink-3)); }
+
+/* ── Segmented (UiSegmented on QBtnToggle) ─────────────────────────────── */
+/* QBtnToggle's group is the row and its QBtns the options — native <button>s, as before. Each
+   button's content row passes through (display: contents), so the label, the sublabel and a
+   caller's #option content sit right in the button the way they did, and the button drops what
+   QBtn sets that the native button didn't have (its column, its 2.5em height, its positioning,
+   the label-case knob's text-transform). The group isn't positioned either (QBtnToggle's is): a
+   positioned row paints over the page's later boxes (measured: over a card on JustVoice's persona
+   page). The look is the one the component's own styles gave, on the same elements. */
+.ui-seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 2px; gap: 1px; }
+:where(.q-btn-group.ui-seg) { vertical-align: baseline; position: static; }
+.ui-seg.is-locked { opacity: .55; pointer-events: none; }
+.ui-seg .q-btn {
+  appearance: none; background: transparent; border: 0; padding: 6px 12px; border-radius: 6px;
+  cursor: pointer; color: var(--ink-2, var(--ink)); font: inherit;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background .12s ease, color .12s ease; white-space: nowrap;
+}
+:where(.ui-seg .q-btn) {
+  flex-direction: row; min-height: 0; position: static;
+  letter-spacing: normal; word-spacing: normal; text-transform: none; text-indent: 0; text-shadow: none;
+}
+:where(.ui-seg .q-btn)::before { display: none; }
+:where(.ui-seg .q-btn > .q-btn__content) { display: contents; }
+.ui-seg .q-btn:hover { background: var(--surface-3, var(--surface)); color: var(--ink); }
+.ui-seg .q-btn.is-off { opacity: .5; cursor: not-allowed; }
+.ui-seg .q-btn.is-off:hover { background: transparent; }
+.ui-seg .q-btn.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+.ui-seg .q-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
+.ui-seg .ui-seg__label { font-weight: 600; }
+.ui-seg .ui-seg__sub { font-size: 11px; color: var(--muted); }
+.ui-seg--small .q-btn { padding: 4px 8px; font-size: 12px; }
+/* connected — buttons flex to fill + stack label/sublabel; the 1px gap reads as
+   a hairline divider. Caller owns row sizing (flex: 1; min-width). */
+.ui-seg--connected { border-radius: 9px; }
+.ui-seg--connected .q-btn { flex: 1; flex-direction: column; align-items: center; gap: 1px; padding: 6px 4px; }
+.ui-seg--connected .q-btn.active { color: var(--accent-ink, var(--accent)); box-shadow: 0 0 0 1px var(--border), 0 1px 2px var(--shadow-soft, rgba(0,0,0,.08)); }
+.ui-seg--connected .ui-seg__label { font-size: 12px; }
+.ui-seg--connected .ui-seg__sub { font-size: 10px; color: var(--muted); }
+.ui-seg--connected .q-btn.active .ui-seg__sub { color: var(--accent-ink, var(--accent)); opacity: .8; }
+
+/* ── Tab strip (UiTabStrip on QTabs + QTab) ────────────────────────────── */
+/* JustWrite's Settings values, verbatim — one look, every app, every strip. QTabs is the strip, its
+   content row holds the tabs, each QTab is a tab with Quasar's label inside. The 2px underline is
+   the tab's own bottom border sitting ON the strip's 1px rule (margin-bottom: -1px), as before. A
+   strip too narrow for its tabs wraps them onto more rows, as before (JustVoice's Settings has two
+   rows at 1440px) — Quasar's sideways scrolling with arrows would hide the last tabs — so the row
+   wraps and doesn't clip, and the arrows stay hidden. Quasar's sliding indicator, its 48px tabs,
+   its uppercase 14px label, its dimmed inactive tabs and its positioning are not used (a positioned
+   tab painted after an animation is composited and loses its sub-pixel text). A keyboard-focused
+   tab wears the kit buttons' focus ring: the tab isn't a <button> any more, so neither the
+   browser's ring (JustVoice, docgen) nor JustWrite's removal of it reach it. */
+.ui-tabstrip { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+:where(.ui-tabstrip) .q-tabs__content { flex-wrap: wrap; gap: inherit; overflow: visible; position: static; }
+:where(.ui-tabstrip) .q-tabs__arrow { display: none; }
+:where(.q-tabs.ui-tabstrip) { position: static; }
+.ui-tabstrip__tab {
+  appearance: none; background: none; border: 0;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  padding: 10px 16px; font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--ink-2); cursor: pointer;
+}
+:where(.q-tab.ui-tabstrip__tab) {
+  min-height: 0; position: static; opacity: 1; transition: none;
+  letter-spacing: normal; word-spacing: normal; text-transform: none; text-indent: 0; text-shadow: none;
+}
+.ui-tabstrip__tab:focus-visible { outline: none; box-shadow: var(--focus-ring, 0 0 0 3px var(--accent-soft)); }
+:where(.ui-tabstrip__tab) .q-tab__content { min-width: 0; height: auto; padding: 0; position: static; }
+:where(.ui-tabstrip__tab) .q-tab__label { font: inherit; }
+:where(.ui-tabstrip__tab) .q-tab__indicator { display: none; }
+.ui-tabstrip__tab:hover { color: var(--ink); }
+.ui-tabstrip__tab.on { color: var(--ink); border-bottom-color: var(--accent); }
+
+/* ── Slider (UiSlider's range on QSlider) ──────────────────────────────── */
+/* Drawn as Chrome drew the native range it replaces with the accent (measured, RESEARCH "The
+   kit's controls on Quasar"): an 8px pill track with a 1px edge, the part before the thumb in the
+   accent, and a 16px accent thumb whose centre travels from 8px inside one end to 8px inside the
+   other. Chrome has two palettes and takes the dark one when the accent is too light to stand on
+   its light track — the family's dark-theme accent, never its light-theme one — so the palette
+   follows the theme. Light: track #efefef, the edge Chrome's control border #767676 at half
+   strength over the fill; hovering darkens the accent (× 0.7) and the track, pressing lightens them
+   (× 1.3). Dark: track #3b3b3b with a solid grey edge; hovering lightens the accent, pressing
+   darkens it. The thumb takes the hover colour only when it is hovered itself.
+   QSlider's own box is the thumb's travel (UiSlider sizes it, with 8px margins: QSlider maps a
+   click against that box), its track container reaches 8px past it each side to the 18px box the
+   native input was (the thing hovered, clicked and focused), its track is only the thumb's frame,
+   and the pill is drawn by its inner bar and its selection reaching back over those 8px. Quasar's
+   halo, its growing thumb, its grab cursors and its animated moves are not used; the focus ring
+   goes round the 18px box, as it went round the native input. */
+.ui-slider-range {
+  --ui-range-hover: color-mix(in srgb, var(--accent) 70%, black);
+  --ui-range-press: rgb(from var(--accent) calc(r * 1.3) calc(g * 1.3) calc(b * 1.3));
+  --ui-range-track-rest: #efefef; --ui-range-track-hover: #e5e5e5; --ui-range-track-press: #f5f5f5;
+  --ui-range-edge-rest: rgb(118 118 118 / .5); --ui-range-edge-hover: rgb(79 79 79 / .5); --ui-range-edge-press: rgb(141 141 141 / .5);
+  --ui-range-fill: var(--accent); --ui-range-thumb: var(--accent);
+  --ui-range-track: var(--ui-range-track-rest); --ui-range-edge: var(--ui-range-edge-rest);
+  height: 18px; cursor: pointer;
+}
+:root[data-theme="dark"] .ui-slider-range {
+  --ui-range-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --ui-range-press: color-mix(in srgb, var(--accent) 78%, black);
+  --ui-range-track-rest: #3b3b3b; --ui-range-track-hover: #3b3b3b; --ui-range-track-press: #3b3b3b;
+  --ui-range-edge-rest: #858585; --ui-range-edge-hover: #acacac; --ui-range-edge-press: #6e6e6e;
+}
+.ui-slider-range.q-slider--editable:hover { --ui-range-fill: var(--ui-range-hover); --ui-range-track: var(--ui-range-track-hover); --ui-range-edge: var(--ui-range-edge-hover); }
+.ui-slider-range.q-slider--editable .q-slider__thumb:hover { --ui-range-thumb: var(--ui-range-hover); }
+.ui-slider-range.q-slider--active { --ui-range-fill: var(--ui-range-press); --ui-range-track: var(--ui-range-track-press); --ui-range-edge: var(--ui-range-edge-press); }
+.ui-slider-range.q-slider--active.q-slider--editable .q-slider__thumb { --ui-range-thumb: var(--ui-range-press); }
+.ui-slider-range.disabled {
+  --ui-range-fill: #cbcbcb; --ui-range-thumb: #cbcbcb; --ui-range-track: #fafafa; --ui-range-edge: rgb(118 118 118 / .3);
+  cursor: not-allowed; opacity: .55;
+}
+:where(.ui-slider-range) .q-slider__track-container { width: auto; margin: 0 -8px; padding: 5px 8px; cursor: inherit; }
+:where(.ui-slider-range) .q-slider__track { background: none; border-radius: 0; }
+:where(.ui-slider-range) .q-slider__inner,
+:where(.ui-slider-range) .q-slider__selection { background: none; border-radius: 0; transition: none; will-change: auto; }
+.ui-slider-range .q-slider__inner::before,
+.ui-slider-range .q-slider__selection::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -7px; right: -7px;
+  background: var(--ui-range-track); border: 1px solid var(--ui-range-edge); border-radius: 999px;
+}
+.ui-slider-range .q-slider__selection::before { right: 0; background: var(--ui-range-fill); border-right: 0; border-radius: 999px 0 0 999px; }
+:where(.ui-slider-range) .q-slider__thumb { color: var(--ui-range-thumb); transition: none; will-change: auto; }
+:where(.ui-slider-range) .q-slider__thumb-shape { stroke-width: 0; transform: none; transition: none; }
+:where(.ui-slider-range) .q-slider__focus-ring { display: none; }
+.ui-slider-range .q-slider__track-container:focus-visible { outline: none; box-shadow: var(--focus-ring, 0 0 0 3px var(--accent-soft)); border-radius: 999px; }
+
+/* ── Progress (UiProgress on QLinearProgress) ──────────────────────────── */
+/* QLinearProgress is the track — today's 6px pill on surface-2 — and its bar the accent fill.
+   Quasar draws the fill as a full-width bar scaled to the value (its round end narrows with it)
+   and moves it in 0.2s, as the width moved. Its own track layer and Material's two-bar sweep are
+   not used: an unknown total is the kit's single sweep, as before. */
+.ui-progress-track {
+  position: relative; height: 6px; border-radius: 999px;
+  background: var(--surface-2, var(--border)); overflow: hidden;
+}
+:where(.q-linear-progress.ui-progress-track) { font-size: inherit; transform: none; }
+:where(.ui-progress-track) .q-linear-progress__track { display: none; }
+.ui-progress-track .q-linear-progress__model { background: var(--accent); border-radius: 999px; }
+.ui-progress-track--indet .q-linear-progress__model {
+  right: auto; width: 35%;
+  animation: ui-progress-indet 1.1s ease-in-out infinite;
+}
+:where(.ui-progress-track--indet) .q-linear-progress__model::before,
+:where(.ui-progress-track--indet) .q-linear-progress__model::after { display: none; }
+@keyframes ui-progress-indet {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+
+/* ── Color picker (UiColorPicker's popover on QMenu) ───────────────────── */
+/* The popover is Quasar's menu, placed under the swatch; its box is the kit's. */
+.ui-color-pop {
+  z-index: 250; width: 240px; padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: var(--r-md, 10px);
+  box-shadow: 0 12px 36px var(--shadow-medium, rgba(0,0,0,.18));
+}

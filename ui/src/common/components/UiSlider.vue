@@ -24,7 +24,14 @@
 // The number box is EDITABLE by default (type an exact value; a slider alone
 // can't hit 0.35 reliably). `readout` makes it display-only. `:format` styles
 // what that box shows without changing the model value.
+//
+// Quasar's QSlider is the range (the kit's controls on Quasar —
+// docs/plans/2026-10-09-kit-controls-on-quasar.md), drawn as the browser's own range input was
+// (the kit's theme, ../../quasar/theme.css, "Slider"); the number box, the readout and the
+// measured mark labels stay the kit's. The keys are the native ones (arrows a step, Page Up/Down
+// ten, Home/End the ends); `change` comes when a drag or a key is let go.
 
+import { QSlider } from "quasar";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import UiInput from "./UiInput.vue";
@@ -56,6 +63,8 @@ const emit = defineEmits(["update:modelValue", "change"]);
 const nMin = computed(() => Number(props.min));
 const nMax = computed(() => Number(props.max));
 const nStep = computed(() => Number(props.step) || 0.01);
+// the thumb: a full 16px circle (QSlider's own is a ringed 12px one)
+const THUMB = "M 0,10 a 10,10 0 1,0 20,0 a 10,10 0 1,0 -20,0";
 
 const value = computed(() => {
   const v = Number(props.modelValue);
@@ -179,20 +188,22 @@ watch(() => [props.marks, props.min, props.max, props.width], relayout, { deep: 
 <template>
   <div class="ui-slider" :class="[`ui-slider--${width}`, { 'is-disabled': disabled }]">
     <div class="ui-slider-row">
-      <input
+      <QSlider
         :id="id"
         :name="name"
-        type="range"
         class="ui-slider-range"
+        :model-value="value"
         :min="nMin"
         :max="nMax"
         :step="nStep"
-        :value="value"
-        :disabled="disabled"
+        :disable="disabled"
+        thumb-size="16px"
+        track-size="8px"
+        :thumb-path="THUMB"
         :aria-label="ariaLabel"
         :aria-valuetext="shown"
-        @input="setValue($event.target.value)"
-        @change="setValue($event.target.value, 'change')"
+        @update:model-value="setValue"
+        @change="setValue($event, 'change')"
       />
       <span v-if="showNumber && readout" class="ui-slider-readout">{{ shown }}</span>
       <UiInput
@@ -230,24 +241,16 @@ watch(() => [props.marks, props.min, props.max, props.width], relayout, { deep: 
   align-items: center;
   gap: 10px;
 }
-/* Content-typed widths — a slider is a control, not a layout filler. */
-.ui-slider--short  .ui-slider-range { width: 120px; }
-.ui-slider--regular .ui-slider-range { width: 200px; }
-.ui-slider--long   .ui-slider-range { width: 320px; }
+/* Content-typed widths — a slider is a control, not a layout filler. The range's own box is the
+   thumb's travel, 8px inside each end (QSlider measures a click against its box; the theme's track
+   reaches the 8px back out on each side, as the native range's did), so each width is the
+   control's less 16px, with the 8px as margins. */
+.ui-slider-range { margin: 0 8px; }
+.ui-slider--short  .ui-slider-range { width: 104px; }
+.ui-slider--regular .ui-slider-range { width: 184px; }
+.ui-slider--long   .ui-slider-range { width: 304px; }
 .ui-slider--full   { display: flex; }
-.ui-slider--full   .ui-slider-range { width: 100%; }
-
-.ui-slider-range {
-  accent-color: var(--accent);
-  height: 18px;
-  cursor: pointer;
-}
-.ui-slider-range:disabled { cursor: not-allowed; opacity: .55; }
-.ui-slider-range:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring, 0 0 0 3px var(--accent-soft));
-  border-radius: 999px;
-}
+.ui-slider--full   .ui-slider-range { width: calc(100% - 16px); }
 
 .ui-slider-readout {
   font-variant-numeric: tabular-nums;

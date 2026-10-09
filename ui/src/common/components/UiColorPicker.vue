@@ -5,11 +5,17 @@
 // browser-native color input for anything off-palette. Supersedes JwColorPicker.
 //
 // The `presets` are passed in (app domain data, not baked into the kit); a
-// neutral 12-swatch default lets it work out of the box. Positioning uses
-// Floating UI (host peer dep, already deduped for UiSelect's dropdown).
+// neutral 12-swatch default lets it work out of the box.
+//
+// The popover is Quasar's QMenu (the kit's controls on Quasar —
+// docs/plans/2026-10-09-kit-controls-on-quasar.md): it sits under the swatch, opens and closes on
+// the swatch's click, closes on an outside click or Esc, and takes focus while open (Tab reaches
+// the presets; the swatch gets it back on close). What's in it stays the kit's: the preset
+// squares and the browser's own colour dialog behind "Custom color" (Quasar's QColor picker would
+// replace both). The look: ../../quasar/theme.css, "Color picker".
 
-import { ref, computed, nextTick, onBeforeUnmount } from "vue";
-import { computePosition, autoUpdate, offset, flip, shift } from "@floating-ui/dom";
+import { computed, ref } from "vue";
+import { QMenu } from "quasar";
 
 const props = defineProps({
   modelValue: { type: String, default: "" },
@@ -27,34 +33,7 @@ const props = defineProps({
 const emit = defineEmits(["update:modelValue"]);
 
 const open = ref(false);
-const triggerEl = ref(null);
-const popEl = ref(null);
-let cleanupPos = null;
-
-function tearDownPos() {
-  if (cleanupPos) { cleanupPos(); cleanupPos = null; }
-}
-function setUpPos() {
-  tearDownPos();
-  if (!triggerEl.value || !popEl.value) return;
-  cleanupPos = autoUpdate(triggerEl.value, popEl.value, () => {
-    computePosition(triggerEl.value, popEl.value, {
-      strategy: "fixed",
-      placement: "bottom-start",
-      middleware: [offset(6), flip(), shift({ padding: 6 })],
-    }).then(({ x, y }) => {
-      if (!popEl.value) return;
-      popEl.value.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
-    });
-  });
-}
-
-function toggle() {
-  open.value = !open.value;
-  if (open.value) nextTick(setUpPos);
-  else tearDownPos();
-}
-function close() { open.value = false; tearDownPos(); }
+function close() { open.value = false; }
 
 function pickPreset(color) {
   emit("update:modelValue", color);
@@ -86,37 +65,26 @@ function onCustomChange(e) {
   close();
 }
 
-function onDocMousedown(e) {
-  if (!open.value) return;
-  const inTrigger = triggerEl.value?.contains(e.target);
-  const inPop     = popEl.value?.contains(e.target);
-  if (!inTrigger && !inPop) close();
-}
-function onKeydown(e) {
-  if (e.key === "Escape" && open.value) { close(); e.stopPropagation(); }
-}
-
-document.addEventListener("mousedown", onDocMousedown);
-onBeforeUnmount(() => {
-  document.removeEventListener("mousedown", onDocMousedown);
-  tearDownPos();
-});
 </script>
 
 <template>
-  <div class="ui-color-picker" @keydown="onKeydown">
+  <div class="ui-color-picker">
     <button
-      ref="triggerEl"
       type="button"
       class="ui-color-swatch"
       :class="{ open }"
       :style="{ background: modelValue, width: `${size}px`, height: `${size}px` }"
       :aria-label="ariaLabel"
       :aria-expanded="open"
-      @click="toggle" />
-
-    <Teleport to="body">
-      <div v-if="open" ref="popEl" class="ui-color-pop" @keydown="onKeydown">
+    >
+      <QMenu
+        v-model="open"
+        class="ui-color-pop"
+        anchor="bottom left"
+        self="top left"
+        :offset="[0, 6]"
+        :transition-duration="0"
+      >
         <div class="ui-color-presets">
           <button
             v-for="(c, i) in presets" :key="c"
@@ -137,8 +105,8 @@ onBeforeUnmount(() => {
             :aria-label="`${ariaLabel} — custom`"
             @change="onCustomChange" />
         </label>
-      </div>
-    </Teleport>
+      </QMenu>
+    </button>
   </div>
 </template>
 
@@ -160,14 +128,7 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 0 0 1px var(--shadow-soft, rgba(0,0,0,.06)), 0 0 0 3px var(--accent-soft);
 }
 
-.ui-color-pop {
-  position: fixed; top: 0; left: 0; z-index: 250;
-  width: 240px; padding: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border-strong, var(--border));
-  border-radius: var(--r-md, 10px);
-  box-shadow: 0 12px 36px var(--shadow-medium, rgba(0,0,0,.18));
-}
+/* the popover itself (.ui-color-pop) is QMenu's, teleported out of this scope: the kit's theme */
 .ui-color-presets {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
   margin-bottom: 12px;

@@ -115,7 +115,8 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   screens identical to the build before it. Slice 1 (tags, chips) and slice 2 (buttons; Quasar's
   stylesheet in a cascade layer; Quasar in the unit tests) DONE — screens and states identical,
   every app's suites green. Slice 3 (checkbox, switch; the theme's selector rule) DONE. Slice 4 (text fields on QInput; their events the native element's own) DONE. Slice 5 (selects
-  on QSelect) DONE, the three apps' end-to-end suites green.
+  on QSelect) DONE, the three apps' end-to-end suites green. Slice 6 (segmented, tab strip,
+  slider, progress, the colour picker's popover) DONE.
 - Q6: DONE 2026-10-09 — docgen on Quasar, branch `quasar` in the worktree `../docgen-quasar`
   (dce418d), fast-forwarded into docgen's main under the go ("keep going using yo9ur recs … dont
   stop", then "go"); the held tree went into a named stash first (the rec, kit TASKS question 5).

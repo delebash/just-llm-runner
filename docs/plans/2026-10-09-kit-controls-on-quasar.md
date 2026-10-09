@@ -100,7 +100,7 @@ control install Quasar with the kit's `QUASAR_TEST_OPTIONS`.
 | `UiSegmented` | `QBtnToggle` | `blocked` for disabled options, roving focus, type-ahead |
 | `UiTabStrip` | `QTabs` + `QTab` | |
 | `UiSelect`, `UiMultiSelect` | `QSelect` | `emit-value` + `map-options`; multi with chips and the filter box (`use-input`) |
-| `UiColorPicker` | `QColor` in a `QMenu` | the preset swatches kept |
+| `UiColorPicker` | `QMenu` (the popover) | the preset swatches and the browser's own colour dialog kept — built without `QColor`, which would replace both (slice 6) |
 | `UiProgress` | `QLinearProgress` | indeterminate when `max` ≤ 0 |
 | `UiTable` | `QTable` | column slots, `head-*` slots, `empty`, `full-row`, `rowClass` (`table-row-class-fn`), global filter (`filter-method`), sorting (`update:sort`), the pager |
 | `AppModal`, `AppDialog` | `QDialog` + `QCard` | `closable`/`dismissable` → `no-esc-dismiss`/`no-backdrop-dismiss`; the drag-by-header stays the kit's; `confirmDialog`/`promptDialog` keep their promises |
@@ -200,7 +200,9 @@ never gets its `for` (`UiField.vue:20` reads `$attrs.for`, but `for` is a declar
 `KnobGrid.vue:328,362` `:deep(input)` and JustWrite's `NotesView.vue:377` `:deep(button)` reach
 nothing (the class sits on the input itself, or on a select whose root renders no element);
 JustVoice's `QuickSetup.vue:495` scoped `input` can't reach the checkbox's input; JustVoice's
-`scripts/verify-dialogs.js` and `scripts/e2e.js:66,87,106` select classes no template has.
+`scripts/verify-dialogs.js` and `scripts/e2e.js:66,87,106` select classes no template has; the
+kit's `AppearancePanel.vue:98` accent-hue slider is a hand-rolled native `<input type="range">`,
+not `UiSlider` (JustVoice's global `input[type="range"]` rules now reach only it).
 
 ## 5 · Slices and how each is checked
 
@@ -407,3 +409,47 @@ placement; 16 behaviour checks the same on both builds (click, keyboard open/mov
 Escape, outside click, focus after a pick, filter focus and typing, Enter and click ticks, chip
 removal, clear all, close by the trigger); JustVoice's smoke, JustWrite's e2e 7/7, docgen's e2e
 20/20 on the real project (its Setup create-flow drives the multi-select).
+
+**Slice 6 — `UiSegmented` on `QBtnToggle`, `UiTabStrip` on `QTabs` + `QTab`, `UiSlider` on `QSlider`,
+`UiProgress` on `QLinearProgress`, `UiColorPicker`'s popover on `QMenu`** (Floating UI no longer
+under the colour picker).
+
+- **Segmented:** QBtnToggle's QBtns are native `<button>`s with the `active` / `is-off` classes, so
+  JustWrite's `.seg-toggle :deep(button…)` and its provider-scope test still reach them. Each
+  button's content row passes through (`display: contents`), so labels and `#option` content sit
+  in the button as before. The kit keeps the radio roles, the roving tabindex, type-ahead and the
+  clickable off option (`blocked`); QBtnToggle's value is the option's index, and a click on the
+  chosen option reaches its `clear` and is picked again, as before. QBtnToggle's group is
+  `position: relative` — it painted over a later card on JustVoice's persona page — so it's static.
+- **Tab strip:** QTab is a focusable `<div>` with `role="tab"`, so the strip gets Quasar's tab
+  keyboard (one tab stop; arrows, Home and End move; Enter or Space open) and the kit buttons'
+  focus ring — a native button had the browser's ring (JustVoice, docgen) or none (JustWrite removes
+  it). QTabs scrolls a strip too narrow for its tabs sideways behind arrows; JustVoice's Settings
+  has two rows of tabs at 1440px and the last three disappeared behind an arrow, so the strip still
+  wraps. Quasar's sliding indicator isn't used: the underline is the tab's border, as before.
+- **Slider:** drawn as Chrome drew the native range, measured (RESEARCH): the 8px pill track with
+  its 1px edge, the 16px thumb travelling 8px inside each end, the light and dark palettes and their
+  hover and pressed colours, the thumb's own hover. QSlider maps a click against its own box, so
+  the box is the thumb's travel (UiSlider's widths less 16px, with 8px margins) and the track
+  container reaches the 8px back out — clicks, drags and keys land on the same values as the native
+  range's. The number box, readout and measured marks are the kit's, unchanged.
+- **Progress:** QLinearProgress is the track and its bar the fill (scaled, its round end narrowing
+  with the value); an unknown total is the kit's single sweep, as before. The ARIA values stay
+  percentages.
+- **Colour picker:** QMenu places the popover under the swatch (Quasar now uses CSS anchor
+  positioning — 0.03–0.17px from where Floating UI rounded it), opens and closes on the swatch,
+  closes on Esc or an outside click, and takes focus while open, so Tab reaches the presets (they
+  were unreachable by keyboard — the popover sat at the end of the page) and the swatch gets focus
+  back on close.
+- **User docs:** the tab-row, choice, slider and colour keys are in JustWrite's and JustVoice's
+  `docs/keyboard-shortcuts.md`; docgen has no page for them.
+
+Checked: lint; the apps' unit tests (594, 183, 3); the 30 screens (live values, 1/255 corner
+rounding; JustWrite's Export keeps slice 3's 1/255); 39 states — tab strips (one row, two rows,
+hovered, keyboard-focused, dark), segmented rows (default, connected, small, with icon slots;
+hovered, focused, dark, another accent), sliders (rest, hovered, focused, dark, another accent; the
+Generation section; a persona knob), the progress bar (rest, dark, and its sweep paused at four
+moments), the colour picker (closed, hovered, open, a preset hovered, dark) — the same but for the
+sliders' sub-pixel rasterisation (Chrome pixel-snaps a native input, not a div; ≤ 1px bands), the
+popover's sub-pixel placement and the tab's focus ring; 38 behaviour checks the same on both
+builds but the tab keyboard and roles and the colour picker's focus, as above.

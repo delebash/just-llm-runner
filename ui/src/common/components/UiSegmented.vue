@@ -3,8 +3,8 @@
 // Shared segmented radio control — a row of mutually-exclusive buttons.
 // Supersedes JwSegmented/JvSegmented/LuSegmented. Provides role="radiogroup" +
 // roving tabindex + arrow/Home/End nav + type-ahead, a "connected" variant, and
-// a `disabled` (locked) state. Self-contained: scoped styles + the shared
-// useRovingTabindex composable.
+// a `disabled` (locked) state. Self-contained: the shared useRovingTabindex
+// composable, and its look in the kit's theme.
 //
 //   v-model="value"
 //   :options="[{ value, label, sublabel?, disabled?, title? }, ...]"
@@ -18,7 +18,17 @@
 // can say why (born 2026-10-03 for JustVoice's persona editor: a voice kind
 // that needs a model not yet available is shown off with its reason, never
 // hidden — the user can't tell "off" from "absent" otherwise).
-import { computed, nextTick } from "vue";
+//
+// Quasar's QBtnToggle underneath (the kit's controls on Quasar —
+// docs/plans/2026-10-09-kit-controls-on-quasar.md): its group is the row (.ui-seg) and its QBtns
+// the options — native <button>s as before, with the `active` / `is-off` classes — and the look
+// is the kit's theme (../../quasar/theme.css, "Segmented"). The kit keeps what QBtnToggle doesn't
+// do: the radio roles and the roving tabindex (one tab stop; arrows move; Enter/Space pick),
+// type-ahead, and an off option that stays clickable (QBtnToggle's would be disabled). Its value
+// is the option's index, so any option value works; a click on the chosen option reaches
+// QBtnToggle's `clear` (it's clearable for that alone) and is picked again, as before.
+import { QBtnToggle } from "quasar";
+import { computed, nextTick, onMounted, onUpdated, ref } from "vue";
 import { useRovingTabindex } from "../composables/useRovingTabindex.js";
 
 const props = defineProps({
@@ -72,60 +82,69 @@ function onKeydown(e, idx) {
     typeTimer = setTimeout(() => { typeBuffer = ""; }, 600);
   }
 }
+
+const isSelected = (opt) => props.modelValue === getValue(opt);
+const selectedIndex = computed(() => props.options.findIndex(isSelected));
+// QBtnToggle's options: the index as the value, the kit's attributes on each button (QBtnToggle
+// spreads `attrs` into the QBtn), and a slot of its own per option
+const btnOptions = computed(() => props.options.map((opt, i) => ({
+  value: i,
+  slot: `opt-${i}`,
+  attrs: {
+    role: "radio",
+    "aria-pressed": undefined,
+    "aria-checked": isSelected(opt) ? "true" : "false",
+    "aria-disabled": isOff(opt) ? "true" : undefined,
+    title: opt?.title || undefined,
+    tabindex: isSelected(opt) ? 0 : -1,
+    disabled: props.disabled ? "" : undefined,
+    class: { active: isSelected(opt), "is-off": isOff(opt) },
+    onKeydown: (e) => onKeydown(e, i),
+  },
+})));
+function onToggle(i) {
+  if (i !== null) pick(props.options[i]);
+}
+function onReclick() {
+  pick(props.options[selectedIndex.value]);
+}
+
+// the roving focus needs the buttons themselves, which QBtnToggle renders
+const group = ref(null);
+function registerButtons() {
+  const buttons = group.value?.$el?.querySelectorAll?.(":scope > .q-btn") ?? [];
+  props.options.forEach((_, i) => registerItem(i, buttons[i] ?? null));
+}
+onMounted(registerButtons);
+onUpdated(registerButtons);
 </script>
 
 <template>
-  <div class="ui-seg"
+  <QBtnToggle
+    ref="group"
+    :model-value="selectedIndex"
+    :options="btnOptions"
+    flat
+    no-caps
+    no-wrap
+    clearable
+    toggle-color=""
+    :ripple="false"
+    class="ui-seg"
     :class="{
       'ui-seg--small': size === 'small',
       'ui-seg--connected': variant === 'connected',
       'is-locked': disabled,
     }"
-    role="radiogroup" :aria-label="ariaLabel">
-    <button v-for="(opt, i) in options" :key="getValue(opt)"
-      :ref="(el) => registerItem(i, el)"
-      type="button"
-      role="radio"
-      :disabled="disabled"
-      :aria-disabled="isOff(opt) || undefined"
-      :title="opt?.title || undefined"
-      :aria-checked="modelValue === getValue(opt)"
-      :tabindex="modelValue === getValue(opt) ? 0 : -1"
-      :class="{ active: modelValue === getValue(opt), 'is-off': isOff(opt) }"
-      @click="pick(opt)"
-      @keydown="onKeydown($event, i)">
-      <slot name="option" :option="opt" :selected="modelValue === getValue(opt)">
-        <b>{{ labelOf(opt) }}</b>
-        <span v-if="sublabelOf(opt)">{{ sublabelOf(opt) }}</span>
+    role="radiogroup" :aria-label="ariaLabel"
+    @update:model-value="onToggle"
+    @clear="onReclick"
+  >
+    <template v-for="(opt, i) in options" :key="i" #[`opt-${i}`]>
+      <slot name="option" :option="opt" :selected="isSelected(opt)">
+        <b class="ui-seg__label">{{ labelOf(opt) }}</b>
+        <span v-if="sublabelOf(opt)" class="ui-seg__sub">{{ sublabelOf(opt) }}</span>
       </slot>
-    </button>
-  </div>
+    </template>
+  </QBtnToggle>
 </template>
-
-<style scoped>
-.ui-seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 2px; gap: 1px; }
-.ui-seg.is-locked { opacity: .55; pointer-events: none; }
-.ui-seg button {
-  appearance: none; background: transparent; border: 0; padding: 6px 12px; border-radius: 6px;
-  cursor: pointer; color: var(--ink-2, var(--ink)); font: inherit;
-  display: inline-flex; align-items: center; gap: 6px;
-  transition: background .12s ease, color .12s ease; white-space: nowrap;
-}
-.ui-seg button:hover { background: var(--surface-3, var(--surface)); color: var(--ink); }
-.ui-seg button.is-off { opacity: .5; cursor: not-allowed; }
-.ui-seg button.is-off:hover { background: transparent; }
-.ui-seg button.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
-.ui-seg button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
-.ui-seg button b { font-weight: 600; }
-.ui-seg button span { font-size: 11px; color: var(--muted); }
-.ui-seg--small button { padding: 4px 8px; font-size: 12px; }
-
-/* connected — buttons flex to fill + stack label/sublabel; the 1px gap reads as
-   a hairline divider. Caller owns row sizing (flex: 1; min-width). */
-.ui-seg--connected { border-radius: 9px; }
-.ui-seg--connected button { flex: 1; flex-direction: column; align-items: center; gap: 1px; padding: 6px 4px; }
-.ui-seg--connected button.active { color: var(--accent-ink, var(--accent)); box-shadow: 0 0 0 1px var(--border), 0 1px 2px var(--shadow-soft, rgba(0,0,0,.08)); }
-.ui-seg--connected button b { font-size: 12px; }
-.ui-seg--connected button span { font-size: 10px; color: var(--muted); }
-.ui-seg--connected button.active span { color: var(--accent-ink, var(--accent)); opacity: .8; }
-</style>

@@ -3,6 +3,12 @@
 // Shared progress bar. Determinate when `max > 0` (fills to value/max and shows
 // a %); indeterminate (animated sweep) when the total is unknown. Token-styled
 // so it renders native in either app. The kit had no progress bar before this.
+//
+// Quasar's QLinearProgress underneath (the kit's controls on Quasar —
+// docs/plans/2026-10-09-kit-controls-on-quasar.md): it is the track (.ui-progress-track, the
+// progressbar), its bar the fill, and the look is the kit's theme (../../quasar/theme.css,
+// "Progress"). The ARIA values stay percentages (0–100) and the label names the bar, as before.
+import { QLinearProgress } from "quasar";
 import { computed } from "vue";
 
 const props = defineProps({
@@ -27,20 +33,16 @@ const pct = computed(() => {
       <span class="ui-progress-label">{{ label }}</span>
       <span v-if="pct !== null" class="ui-progress-pct">{{ pct }}%</span>
     </div>
-    <div
+    <QLinearProgress
       class="ui-progress-track"
       :class="{ 'ui-progress-track--indet': pct === null }"
-      role="progressbar"
-      :aria-valuemin="0"
-      :aria-valuemax="100"
+      :value="pct === null ? 0 : pct / 100"
+      :indeterminate="pct === null"
+      :animation-speed="200"
+      aria-valuemax="100"
       :aria-valuenow="pct === null ? undefined : pct"
       :aria-label="label || undefined"
-    >
-      <div
-        class="ui-progress-fill"
-        :style="pct !== null ? { width: `${pct}%` } : undefined"
-      />
-    </div>
+    />
   </div>
 </template>
 
@@ -67,27 +69,5 @@ const pct = computed(() => {
 .ui-progress-pct {
   font-variant-numeric: tabular-nums;
   color: var(--ink);
-}
-.ui-progress-track {
-  position: relative;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--surface-2, var(--border));
-  overflow: hidden;
-}
-.ui-progress-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: var(--accent);
-  transition: width 0.2s ease;
-}
-/* Unknown total → an indeterminate sweep. */
-.ui-progress-track--indet .ui-progress-fill {
-  width: 35%;
-  animation: ui-progress-indet 1.1s ease-in-out infinite;
-}
-@keyframes ui-progress-indet {
-  0% { transform: translateX(-120%); }
-  100% { transform: translateX(320%); }
 }
 </style>

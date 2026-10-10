@@ -1140,15 +1140,17 @@ code.claude.com/docs/en/best-practices):
 
 ## 7 · Cloud model adapters
 
-- The Claude adapter tells model generations apart by substring
-  (`server/src/llm/anthropic.js:60`): `opus-4-6`, `opus-4-7`, `opus-4-8`, `sonnet-4-6`, `sonnet-5`,
-  `fable-5`, `mythos-5` take adaptive thinking; everything else is treated as legacy and gets
-  `budget_tokens`. So `claude-opus-5-5` and `claude-haiku-5-5` get `budget_tokens`, which both
-  reject with a 400; `claude-sonnet-5-5` matches `sonnet-5` and gets `{type: "disabled"}` when
-  thinking is off, which Sonnet 5.5 also rejects (it takes `between_tools`); Opus 5.5 can't turn
-  thinking off at all and 400s on temperature. `CURATED_MODELS` (`:44`) lists none of the 5.5
-  ids. — *code, 2026-10-10* · the API rules: the Claude Code `claude-api` skill, cached
-  2026-10-06.
+- The Claude adapter tells model generations apart with a table (`GENERATIONS`,
+  `server/src/llm/anthropic.js`): per generation, how thinking turns off (`disabled`,
+  `between_tools` for Sonnet 5.5, or not at all for Fable, Mythos and Opus 5.5) and whether it
+  takes samplers; a model matching no row is legacy and gets `budget_tokens`. Printed per id on
+  2026-10-10: Opus 5.5 off sends no thinking field and no temperature, Sonnet 5.5 off sends
+  `between_tools`, Haiku 5.5 on sends adaptive + effort; `claude-haiku-4-5` still gets
+  `budget_tokens`. `CURATED_MODELS` lists the 5.x ids. — *code, 2026-10-10* · the API rules: the
+  Claude Code `claude-api` skill, cached 2026-10-06 (was: substring lists that sent
+  `budget_tokens` to `claude-opus-5-5` and `claude-haiku-5-5` and `{type: "disabled"}` to
+  `claude-sonnet-5-5` — each a 400 — and kept `temperature` when thinking was off, until
+  2026-10-10).
 - The OpenAI adapter speaks the Responses API and, when a reasoning model rejects
   `temperature`, retries once without it (`server/src/llm/openai_sdk.js:240`). Whether
   `gpt-6.1-sol` needs anything else is unchecked. — *code, 2026-10-10*.

@@ -6,8 +6,8 @@
 // top-level `system` field, not a system-role message). The SDK owns the wire format,
 // the `anthropic-version` header and retries; `_mapExtra` is an ALLOWLIST (only
 // Anthropic's typed params survive), so the `min_p` 400 unknown-field bug class dies at
-// the boundary. The model-generation split (ADAPTIVE / ALWAYS_THINKS substrings) and
-// `_applyReasoning` are the adaptive / legacy / always-thinks logic, unchanged.
+// the boundary. The model-generation table (GENERATIONS) and `_applyReasoning` are the
+// adaptive / legacy logic: how each generation turns thinking off and whether it takes samplers.
 // (Record: docs/plans/2026-07-17-provider-native-dialects-plan.md §0.5 / §5.)
 //
 // JS SDK differences, handled here: `timeout` is milliseconds; an HTTP-status error is an
@@ -42,6 +42,11 @@ export const DEFAULT_MODEL = "claude-haiku-4-5";
 // exists (since 2025) and models() prefers it; this curated list survives on ANY error so
 // the works-without-a-key behaviour is kept. Re-verify the ids at each model launch.
 export const CURATED_MODELS = [
+  "claude-fable-5-1",
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-haiku-5-5",
+  "claude-opus-5",
   "claude-fable-5",
   "claude-mythos-5",
   "claude-opus-4-8",
@@ -52,18 +57,37 @@ export const CURATED_MODELS = [
   "claude-haiku-4-5-20251001",
 ];
 
-// Model-generation split (verified 2026-07-14 at platform.claude.com/docs effort +
-// adaptive-thinking): NEW models take ADAPTIVE thinking + output_config.effort (the effort
-// WORD from the reasoning_map) and 400-REJECT the legacy budget_tokens + sampler params;
-// LEGACY models (claude-haiku-4-5 and older) take the classic budget_tokens (the NUMBER
-// from the reasoning_map, via the resolver). Re-verify this id list at each model launch.
-const ADAPTIVE_SUBSTRINGS = ["opus-4-6", "opus-4-7", "opus-4-8", "sonnet-4-6", "sonnet-5", "fable-5", "mythos-5"];
-const ALWAYS_THINKS_SUBSTRINGS = ["fable-5", "mythos-5"];
+// Model generations (verified 2026-07-14 at platform.claude.com/docs effort +
+// adaptive-thinking; the 5.x rows 2026-10-10 against the claude-api skill's model table of
+// 2026-10-06). A model matching a row is NEW: ADAPTIVE thinking + output_config.effort (the
+// effort WORD from the reasoning_map), and it 400-REJECTS the legacy budget_tokens. A model
+// matching no row is LEGACY (claude-haiku-4-5 and older): the classic budget_tokens (the
+// NUMBER from the reasoning_map, via the resolver), samplers allowed. Per row:
+//   off       how thinking is turned off — "disabled", "between_tools" (Sonnet 5.5 400s on
+//             disabled), or null where it can't be (Fable, Mythos, Opus 5.5 400 on disabled;
+//             the field is left out and the model thinks anyway)
+//   sampling  false where temperature / top_p / top_k 400 even with thinking off (removed, or
+//             any non-default value rejected)
+// First match wins, so a longer id sits above its prefix (opus-5-5 above opus-5).
+// Re-verify at each model launch.
+const GENERATIONS = [
+  ["fable-5", { off: null, sampling: false }],
+  ["mythos-5", { off: null, sampling: false }],
+  ["opus-5-5", { off: null, sampling: false }],
+  ["opus-5", { off: "disabled", sampling: false }],
+  ["sonnet-5-5", { off: "between_tools", sampling: false }],
+  ["sonnet-5", { off: "disabled", sampling: false }],
+  ["haiku-5-5", { off: "disabled", sampling: false }],
+  ["opus-4-8", { off: "disabled", sampling: false }],
+  ["opus-4-7", { off: "disabled", sampling: false }],
+  ["opus-4-6", { off: "disabled", sampling: true }],
+  ["sonnet-4-6", { off: "disabled", sampling: true }],
+];
+const SAMPLERS = ["temperature", "top_p", "top_k"];
 
 /** LLM adapter for Anthropic's Claude family over the official SDK. */
 export class AnthropicAdapter {
-  static _ADAPTIVE_SUBSTRINGS = ADAPTIVE_SUBSTRINGS;
-  static _ALWAYS_THINKS_SUBSTRINGS = ALWAYS_THINKS_SUBSTRINGS;
+  static _GENERATIONS = GENERATIONS;
 
   constructor(providerId, { apiKey, baseUrl = "", defaultModel = "", timeoutSeconds = 60 } = {}) {
     this.provider_id = providerId;
@@ -108,24 +132,25 @@ export class AnthropicAdapter {
   }
 
   /**
-   * Anthropic extended thinking, model-aware. NEW models: adaptive thinking +
-   * output_config.effort (the map WORD); drop temperature/top_p/top_k, which the newest
-   * models 400-reject; a model that can't disable thinking (Fable/Mythos 5) gets no
-   * explicit disable. LEGACY models: a `thinking` block with budget_tokens (the map
+   * Anthropic extended thinking, model-aware (GENERATIONS). NEW models, on: adaptive
+   * thinking + output_config.effort (the map WORD), samplers dropped (400-rejected under
+   * thinking). NEW models, off: the generation's own off switch ("disabled" /
+   * "between_tools", or none where the model can't stop thinking), samplers dropped where the
+   * generation rejects them. LEGACY models: a `thinking` block with budget_tokens (the map
    * NUMBER, ≥1024 AND < max_tokens) + a max_tokens bump; drop the temperature override.
    */
   static _applyReasoning(body, think, effort, budget, model) {
     const m = (model || "").toLowerCase();
-    const adaptive = ADAPTIVE_SUBSTRINGS.some((s) => m.includes(s));
-    const alwaysThinks = ALWAYS_THINKS_SUBSTRINGS.some((s) => m.includes(s));
+    const gen = GENERATIONS.find(([s]) => m.includes(s))?.[1] ?? null;
     if (!think) {
-      if (adaptive && !alwaysThinks) body.thinking = { type: "disabled" }; // new models: explicit off (e.g. Sonnet 5)
+      if (gen?.off) body.thinking = { type: gen.off };
+      if (gen && !gen.sampling) for (const k of SAMPLERS) delete body[k];
       return;
     }
-    if (adaptive) {
+    if (gen) {
       body.thinking = { type: "adaptive" };
       if (effort) body.output_config = { effort };
-      for (const k of ["temperature", "top_p", "top_k"]) delete body[k]; // 400-rejected under thinking
+      for (const k of SAMPLERS) delete body[k]; // 400-rejected under thinking
     } else {
       const b = budget != null ? budget : 4096;
       body.thinking = { type: "enabled", budget_tokens: b };

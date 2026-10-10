@@ -158,6 +158,32 @@ test("anthropic_reasoning_legacy_vs_new_model", () => {
   expect(b5.temperature).toBe(0.7);
 });
 
+test("anthropic_reasoning_5x_generations", () => {
+  // Opus 5.5 can't stop thinking: off leaves the field out, and the samplers go (a 400 otherwise).
+  const a = { temperature: 0.7, top_p: 0.9 };
+  AnthropicAdapter._applyReasoning(a, false, "high", null, "claude-opus-5-5");
+  expect("thinking" in a || "temperature" in a || "top_p" in a).toBe(false);
+  // Sonnet 5.5 turns thinking off with between_tools ({type: "disabled"} is a 400).
+  const s = { temperature: 0.7 };
+  AnthropicAdapter._applyReasoning(s, false, "high", null, "claude-sonnet-5-5");
+  expect(s.thinking).toEqual({ type: "between_tools" });
+  expect("temperature" in s).toBe(false);
+  // Haiku 5.5 is a new model: adaptive + the effort word, never budget_tokens.
+  const h = { max_tokens: 4096 };
+  AnthropicAdapter._applyReasoning(h, true, "low", 8192, "claude-haiku-5-5");
+  expect(h.thinking).toEqual({ type: "adaptive" });
+  expect(h.output_config).toEqual({ effort: "low" });
+  expect(h.max_tokens).toBe(4096);
+  // Opus 5 (not 5.5): off is disabled.
+  const o = {};
+  AnthropicAdapter._applyReasoning(o, false, "high", null, "claude-opus-5");
+  expect(o.thinking).toEqual({ type: "disabled" });
+  // Opus 4.6 still takes samplers with thinking off.
+  const o46 = { temperature: 0.2 };
+  AnthropicAdapter._applyReasoning(o46, false, "high", null, "claude-opus-4-6");
+  expect(o46.temperature).toBe(0.2);
+});
+
 test("gemini_build_config_thinking_off_word_number", () => {
   const base = { system: null, temperature: null, maxTokens: null, extra: null };
   // off → OMIT thinkingConfig (model default = today's semantics)

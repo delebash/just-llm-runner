@@ -1275,6 +1275,66 @@ test("load_retune_while_running_does_reload", async () => {
   expect(ini(svc)).toContain("ctx-size = 16384");
 });
 
+// A load held in flight: its first router load waits for `release()`.
+function heldFirstLoad() {
+  let release;
+  const gate = new Promise((r) => {
+    release = r;
+  });
+  let first = true;
+  const routerLoad = async () => {
+    if (first) {
+      first = false;
+      await gate;
+    }
+  };
+  return { routerLoad, release };
+}
+
+test("load_retune_asked_while_loading_runs_once_it_finishes", async () => {
+  // A re-tune asked while the model's load is still finishing was dropped without a word — the
+  // router says loaded before the ledger says running (2026-10-09, the real-router smoke). It
+  // now runs once that load finishes.
+  const held = heldFirstLoad();
+  const svc = serviceFor(tmp(), { routerLoad: held.routerLoad });
+  await svc.load(TEST_MODEL.id);
+  const first = svc._thread;
+  const st = await svc.load(TEST_MODEL.id, { overrides: new Overrides({ ctxLen: 16384 }) });
+  expect(["downloading", "starting"]).toContain(st.status); // kept, not started beside it
+  held.release();
+  await first.join(5);
+  await join5(svc); // the re-tune's own load
+  expect(svc.status().status).toBe("running");
+  expect(ini(svc)).toContain("ctx-size = 16384");
+});
+
+test("the_same_load_asked_again_while_loading_stays_a_no_op", async () => {
+  const held = heldFirstLoad();
+  const svc = serviceFor(tmp(), { routerLoad: held.routerLoad });
+  await svc.load(TEST_MODEL.id, { overrides: new Overrides({ ctxLen: 16384 }) });
+  const first = svc._thread;
+  await svc.load(TEST_MODEL.id, { overrides: new Overrides({ ctxLen: 16384 }) });
+  held.release();
+  await first.join(5);
+  expect(svc._thread).toBe(first); // no second load started
+  expect(svc._pendingRetunes.size).toBe(0);
+});
+
+test("a_stop_drops_a_retune_asked_while_loading", async () => {
+  const held = heldFirstLoad();
+  const svc = serviceFor(tmp(), { routerLoad: held.routerLoad });
+  await svc.load(TEST_MODEL.id);
+  const first = svc._thread;
+  await svc.load(TEST_MODEL.id, { overrides: new Overrides({ ctxLen: 16384 }) });
+  expect(svc._pendingRetunes.has(TEST_MODEL.id)).toBe(true);
+  const stopping = svc.stop(TEST_MODEL.id);
+  expect(svc._pendingRetunes.has(TEST_MODEL.id)).toBe(false);
+  held.release();
+  await stopping;
+  await first.join(5);
+  expect(svc._thread).toBe(first); // the re-tune never started
+});
+
 test("resident_reports_vram_budget", async () => {
   // /resident carries the arbiter's committed/remaining VRAM + each model's reserved vram_mb.
   const arb = new VramArbiter(() => fakeHw(8000));

@@ -253,6 +253,18 @@ export class Condition {
  * and swallowed (`background`). `isAlive()` / `join(timeoutS)` keep the thread's meaning.
  * Candidate for platform/ (asyncutil).
  */
+/** Do two load asks carry the same tuning? Absent overrides are the default Overrides(), the
+ * shape every HTTP load sends; switches compare by value. */
+function _sameTuning(a, b) {
+  if (b == null) return false;
+  const ov = (x) => x ?? new Overrides();
+  return (
+    ov(a.overrides).equals(ov(b.overrides)) &&
+    JSON.stringify(a.switches || {}) === JSON.stringify(b.switches || {}) &&
+    (a.jobId || null) === (b.jobId || null)
+  );
+}
+
 export class BackgroundTask {
   constructor(name, fn, logger = log) {
     this.name = name;
@@ -1010,6 +1022,11 @@ export class RunnerService {
     // stop}. ensureModelReady refuses a re-load inside the window; a direct load() pops the
     // stamp (user intent wins).
     this._stopTombstones = new Map();
+    // {modelId → the tuning its in-flight load runs with} and {modelId → a load with OTHER
+    // tuning asked while that load was still finishing} — run once it finishes, the newest ask
+    // winning (the user's word, 2026-10-09; TASKS "Two real-router smoke tests…"). A stop drops it.
+    this._loadTuning = new Map();
+    this._pendingRetunes = new Map();
     // Defect C (2026-07-22 pass-1 plan T3): {modelId → the ModelIniEntry it was ACTUALLY
     // loaded with} — the single truth for HOW a resident model runs. The emitter renders a
     // resident co-model's section from THIS (never re-derived from DB switch rows, which
@@ -1774,8 +1791,18 @@ export class RunnerService {
     // the ensure guard.)
     this._stopTombstones.delete(modelId);
     const cur = this._resident.get(modelId);
+    const tuning = { overrides, switches, jobId };
     if (cur != null && (cur.status === "downloading" || cur.status === "starting")) {
-      return { ...cur }; // THIS model's load is already in flight
+      // THIS model's load is already in flight. The same ask again is a no-op; an ask with OTHER
+      // tuning is kept and runs once this load finishes. It was dropped without a word: the
+      // router reports the child loaded while the load still trues its VRAM up and records the
+      // footprint, so a Lab re-tune sent the moment the row turned "loaded" landed here and the
+      // child kept its old config (2026-10-09, measured in the real-router smoke).
+      if (!_sameTuning(tuning, this._loadTuning.get(modelId))) {
+        this._pendingRetunes.set(modelId, { ...tuning, trigger });
+        log.info(`load ${modelId}: other tuning asked while it loads — it runs once this load finishes`);
+      }
+      return { ...cur };
     }
     // A plain re-load of an already-running model (no tuning) is idempotent — keep it warm
     // (touch the LRU) rather than re-POST /models/load and get a 400 "already loaded" from the
@@ -1807,11 +1834,24 @@ export class RunnerService {
     // would silently self-cancel this one at the first checkpoint.
     this._cancelEvents.set(modelId, new AsyncEvent());
     this._lastId = modelId;
+    this._loadTuning.set(modelId, tuning);
     log.info(`load ${modelId}: starting load thread (trigger=${trigger})`);
-    this._thread = new BackgroundTask(`load ${modelId}`, () =>
-      this._runLoad(modelId, overrides ?? new Overrides(), jobId, switches),
-    );
+    this._thread = new BackgroundTask(`load ${modelId}`, async () => {
+      await this._runLoad(modelId, overrides ?? new Overrides(), jobId, switches);
+      this._loadTuning.delete(modelId);
+      await this._runPendingRetune(modelId);
+    });
     return { ...this._resident.get(modelId) };
+  }
+
+  /** The re-tune asked while this model's load was finishing (load()), run now that it has —
+   * also after a failed load: it is a fresh ask. A stop since then dropped it. */
+  async _runPendingRetune(modelId) {
+    const ask = this._pendingRetunes.get(modelId);
+    if (ask == null) return;
+    this._pendingRetunes.delete(modelId);
+    log.info(`load ${modelId}: running the tuning asked while it loaded`);
+    await this.load(modelId, ask);
   }
 
   /** The admission ceiling, read LIVE at each gate check so the knob is tunable without a
@@ -1984,6 +2024,7 @@ export class RunnerService {
       // possibly-zombie request's auto-load) must not undo it for _STOP_TOMBSTONE_S; a direct
       // user load() pops the stamp.
       this._stopTombstones.set(modelId, this._now());
+      this._pendingRetunes.delete(modelId); // a stop wins over a re-tune asked while it loaded
       const st = this._resident.get(modelId)?.status;
       if (st === "downloading" || st === "starting") {
         this._cancelEvents.get(modelId)?.set();
@@ -2046,6 +2087,7 @@ export class RunnerService {
         // Defect D (T4): a full teardown tombstones every resident model.
         const now = this._now();
         for (const mid of [...this._resident.keys()]) this._stopTombstones.set(mid, now);
+        this._pendingRetunes.clear();
         const router = this._router;
         if (router != null) {
           try {

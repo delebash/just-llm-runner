@@ -50,6 +50,7 @@ Subjects: [1 · Memory: the arbiter and the probes](#1--memory-the-arbiter-and-t
 [4 · The AI cache](#4--the-ai-cache-shared-between-apps) ·
 [5 · Starting other programs](#5--starting-other-programs) ·
 [6 · Claude Code: instructions and memory](#6--claude-code-instructions-and-memory) ·
+[7 · Cloud model adapters](#7--cloud-model-adapters) ·
 [Records not yet distilled](#records-not-yet-distilled)
 
 ---
@@ -1134,6 +1135,23 @@ code.claude.com/docs/en/best-practices):
   mistakes?"
 - `/doctor prompt-audit` (v2.1.283 or later) reports outdated or conflicting instructions and
   references to files that don't exist, and changes nothing until asked.
+
+---
+
+## 7 · Cloud model adapters
+
+- The Claude adapter tells model generations apart by substring
+  (`server/src/llm/anthropic.js:60`): `opus-4-6`, `opus-4-7`, `opus-4-8`, `sonnet-4-6`, `sonnet-5`,
+  `fable-5`, `mythos-5` take adaptive thinking; everything else is treated as legacy and gets
+  `budget_tokens`. So `claude-opus-5-5` and `claude-haiku-5-5` get `budget_tokens`, which both
+  reject with a 400; `claude-sonnet-5-5` matches `sonnet-5` and gets `{type: "disabled"}` when
+  thinking is off, which Sonnet 5.5 also rejects (it takes `between_tools`); Opus 5.5 can't turn
+  thinking off at all and 400s on temperature. `CURATED_MODELS` (`:44`) lists none of the 5.5
+  ids. — *code, 2026-10-10* · the API rules: the Claude Code `claude-api` skill, cached
+  2026-10-06.
+- The OpenAI adapter speaks the Responses API and, when a reasoning model rejects
+  `temperature`, retries once without it (`server/src/llm/openai_sdk.js:240`). Whether
+  `gpt-6.1-sol` needs anything else is unchecked. — *code, 2026-10-10*.
 
 ---
 

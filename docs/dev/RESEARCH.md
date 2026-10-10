@@ -875,6 +875,14 @@ release notes; *measured* — a project generated, the family's suites run; 2026
   and the Vitest migration guide.)
 - Measured on the new versions: the kit's server suite 1136 passed (2 expected failures, 12
   skipped), just-sqlite-sync 47/47, the template's lint and browser build.
+- **Drag to reorder a list** (*npm registry*, 2026-10-09): no family repo has one — JustVoice's
+  effects chain reorders with ↑/↓, JustWrite hand-rolls HTML5 drag events (chapters, plot board),
+  the kit has only a `DragHandle` icon and AppModal's `useDraggable` (moving a window, not a
+  list), and Quasar ships no sortable list. The standard on the family's stack: VueUse's
+  `useSortable` in `@vueuse/integrations` 15.0.0 (MIT, 2026-09-16 — the same project and version
+  line as the family's `@vueuse/core` 15), a wrapper over SortableJS 1.15.7 (MIT, 2026-02-11, its
+  peer). `vuedraggable` is unmaintained (4.1.0, 2021); `vue-draggable-plus` 0.6.1 (2026-01) is a
+  third-party wrapper of the same library.
 - **Quasar's layout in a family app** (*measured* on JustWrite, 2026-10-09, Chrome via Playwright):
   QLayout (not a container) sets an inline `min-height` of the window's height in unzoomed pixels,
   and QPage's default style a `min-height` the same way — with `zoom` on `<html>` (the appearance

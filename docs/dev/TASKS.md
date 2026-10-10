@@ -840,37 +840,36 @@ GO:     needed — for the build. This rewrite: given 2026-09-19; fault 3 folded
         in 2026-09-20.
 
 
-## Two real-router smoke tests fail only IN THE SUITE, not alone [MEASURED 2026-09-19]
+## Two real-router smoke tests fail only IN THE SUITE — one was the port's timeout, one is a dropped re-tune [MEASURED 2026-10-09]
 
-STATE:  FINDING, pre-existing — both failed BEFORE any of the 2026-09-19
-        engine-update work (that plan's step 1.0 baseline), so nothing here
-        caused them. `test_stop_stays_stopped` and
-        `test_switch_change_reflected_on_reload`, in
-        `tests/test_realrouter_smoke.py`.
-MEASURED (b10750, and the same on b10437):
-        * full suite → BOTH fail (2 failed, 6 passed).
-        * `-k stop_stays_stopped` ALONE → **PASSES**.
-        So this is test ORDER/STATE leakage between cases, not a defect either
-        test catches on its own. Any fix must reproduce it in the suite.
-        * **Our code never asks for the reload.** `lifecycle.load()` logs every
-          ask as `load <id> (trigger=…)` (added 2026-07-17 for exactly this).
-          In the failing run the whole trace is: ONE `load … (trigger=api)`,
-          one router spawn, `stop qwen3-embedding-4b`, FAILED — no second ask,
-          from any trigger. So it is not `ensure-embedding`, not the arbiter,
-          not a warm-boot.
-RULED OUT: the tombstone works (`ensure_model_ready` still raises "just
-        stopped") · NOT the router's startup_models — the emitted
-        `models.ini` carries no `load_on_startup` (read from disk) · NOT the
-        engine bump (fails on b10437 and b10750 alike).
-OPEN:   what `_loaded()` is actually seeing. It counts status `sleeping` as
-        loaded, and the router runs `--sleep-idle-seconds 900`; the likely
-        shape is that after `stop()` the model is still present in the
-        router's `GET /models` (asleep, or an unload that did not take) and
-        `resident()` reconciles it back to "loaded". NEXT STEP: in the failing
-        SUITE run, dump `svc.resident()` and the raw router `GET /models` in
-        the 45 s window — one run answers it. Per-test fixture teardown is
-        `service.stop()` + `time.sleep(1.0)`, which may not outlive the child.
-GO:     needed.
+STATE:  FINDING — re-measured 2026-10-09 in the JavaScript port (`server/tests/realrouter_smoke.test.js`,
+        JustWrite's data root, the CUDA b11239 build, qwen3-embedding-4b), under the program go
+        (JustVoice TASKS "Every open task…", plan 2026-10-09 §6). First measured 2026-09-19 in the
+        Python (both failed in the full file, `stop_stays_stopped` passed alone).
+MEASURED: the full file → `switch_change_reflected_on_reload` timed out at vitest's 20 s per-test
+        limit and `stop_stays_stopped` failed (the model read loaded again within ~4 s of the stop).
+        * `stop_stays_stopped` was LEAKAGE: the timed-out test's body kept running past the cut, its
+          router alive, and brought the model back. With the file's timeout at 300 s (the tests' own
+          waits are 120 s; the Python had no cap) it passes in the full file — 7 of 8 pass.
+        * `switch_change_reflected_on_reload` alone → passes; after the first test → fails: the
+          re-load with ctx 2048 leaves the child at 4096 for 120 s. The log: the second
+          `load qwen3-embedding-4b` never reaches "starting load thread" — `load()` returned at
+          its "THIS model's load is already in flight" check (`runner/lifecycle.js` load(), the
+          `downloading`/`starting` early return). The ledger still read `starting` because
+          `_runLoad`, after the router confirms the child, trues the VRAM up and persists the
+          footprint (`_truedUpVramMb`, `_persistLoadFootprint`) before it writes `running`; in that
+          window the router — and so `resident()` and the UI — already says loaded. In the suite the
+          admission step measured other programs' memory ("686 MB held by processes we do not
+          manage") and the window was wider; alone it closed before the second load.
+WHY:    a re-tune sent in that window (the Lab's re-load with other switches, right after the row
+        turns "loaded") is dropped without a word — the router keeps the old config.
+BUILT:  the test file: the 300 s timeout, and `stop_stays_stopped`'s failure message now carries
+        the resident row, the service's ledger entry and the router's raw GET /models.
+OPEN:   the user's word on the runner's behaviour — a load with DIFFERENT tuning while the same
+        model's load is finishing: run it once that load finishes (queue the newer tuning), or
+        refuse it visibly ("still loading — try again"). Today it is silently dropped. Then
+        `switch_change_reflected_on_reload` should pass in the full file.
+GO:     needed — for the runner change.
 
 
 ## The Recommended badge and Quick setup share ONE runnable rule [verified 2026-09-19]

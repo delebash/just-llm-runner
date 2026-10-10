@@ -30,7 +30,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createConnection } from "node:net";
 import { basename, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { sleep } from "../src/platform/asyncutil.js";
 import { model } from "../src/platform/models.js";
 import { popen } from "../src/platform/procs.js";
@@ -133,6 +133,9 @@ else if (snapshotGguf(EMBED_REPO, EMBED_QUANT) == null) SKIP = `smoke model ${EM
 else if (!(await portFree(8080))) SKIP = "port 8080 busy — never run the smoke beside a live router/app";
 
 const smoke = test.skipIf(SKIP != null);
+// A real load waits up to 120 s (waitFor below), as the Python did with no cap; the suite's 20 s
+// default cut a re-load short (switch_change_reflected_on_reload, 2026-10-09).
+vi.setConfig({ testTimeout: 300_000 });
 
 /** Python's `svc` fixture: a real RunnerService over the data root's cache, torn down fully
  * (router + children) after the body. */
@@ -244,8 +247,13 @@ smoke("stop_stays_stopped", async () => {
     expect(await waitFor(() => loaded(svc, EMBED_ID), 120), statusText(svc)).toBe(true);
     await svc.stop(EMBED_ID);
     await expect(svc.ensureModelReady(EMBED_ID, 5.0)).rejects.toThrow(/just stopped/);
-    // the model came BACK after stop?
-    expect(await waitFor(() => loaded(svc, EMBED_ID), 45)).toBe(false);
+    // the model came BACK after stop? If so, say what each side saw: the resident row, the
+    // service's own ledger entry and the router's raw GET /models (the finding's next step).
+    const back = await waitFor(() => loaded(svc, EMBED_ID), 45);
+    const router = svc._router;
+    const raw = back && router?.isAlive() ? await svc._routerModels(router.url).catch((e) => String(e)) : null;
+    const seen = { resident: await residentRow(svc, EMBED_ID), ledger: svc._resident.get(EMBED_ID) ?? null, router: raw };
+    expect(back, JSON.stringify(seen).slice(0, 3000)).toBe(false);
   });
 });
 

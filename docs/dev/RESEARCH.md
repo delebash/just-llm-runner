@@ -102,6 +102,21 @@ ones this session re-checked are marked ✓ in the study.
 - electron-builder (MIT) covers NSIS, AppImage, deb/rpm, dmg; `electron-updater` updates all
   three OSes. Electron Forge has no NSIS or AppImage.
 - An Electron NSIS installer of a small Vue app is 111.7 MB, 370 MB installed (*measured*).
+- **electron-updater** (*npm registry + code + measured*, 2026-10-09): the stable line is 6.8.9 beside
+  electron-builder 26.15.3 (7.0 and 27.0 are alpha — they rename `autoInstallOnAppQuit` to
+  `autoInstallEvent` and require signed update manifests). With a `publish` config, electron-builder
+  26.15.3 writes `app-update.yml` into the app and `latest.yml` / `latest-mac.yml` /
+  `latest-linux.yml` beside the installers even under `-P never` (`app-builder-lib/out/publish/
+  PublishManager.js`: "file should be generated regardless of publish state"); a DMG writes its
+  update info too (`dmg-builder/out/dmg.js`). `MacUpdater` installs only a zip, through
+  Squirrel.Mac, which needs a signed app. `quitAndInstall()` starts the installer, then quits; with
+  `autoInstallOnAppQuit` a downloaded update installs on any quit. The downloaded installer waits
+  in the OS cache folder — `%LOCALAPPDATA%\<app>-updater\pending` on Windows, `~/.cache` on Linux
+  (`AppAdapter.getAppCacheDir`) — with no option to move it. In development, `setFeedURL` alone
+  checks but fails the download (ENOENT on `dev-app-update.yml`); a written `dev-app-update.yml`
+  with `forceDevUpdateConfig` and `updateConfigPath` does both. *Measured* on JustVoice's
+  development window against a local feed: the start-up check found 9.9.9, Download fetched it
+  (falling back to a full download when the feed had no blockmap) and verified its sha512.
 
 **SQLite in Node** (*web + measured*):
 

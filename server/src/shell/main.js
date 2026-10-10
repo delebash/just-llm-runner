@@ -18,6 +18,8 @@
 //     loads the Vite dev server instead.
 //   - The renderer reaches main through ONE preload object, `window.appShell`, read only
 //     by the app's `src/services/native.js`.
+//   - Updates are electron-updater's (2026-10-09): checked at start-up, downloaded when the
+//     user presses Download, installed when the app quits (or at once, "Restart now").
 //   - Electron's security checklist (electronjs.org/docs/latest/tutorial/security), checked
 //     2026-10-08: context isolation, the sandbox and no Node in the renderer; a written CSP on
 //     app://; navigation, new windows and <webview> refused; permissions granted only to the
@@ -58,6 +60,10 @@ export const COMMANDS = [
   "setTrayLabels",
   "openExternal",
   "openPath",
+  "updateStatus",
+  "updateCheck",
+  "updateDownload",
+  "updateInstall",
 ];
 
 const DEFAULT_TRAY_LABELS = {
@@ -99,6 +105,8 @@ const STOP_WAIT_MS = 8000; // the server's own 3 s grace plus engine shutdown
  *   trayExtras    extra tray items [{id, label, event}] sent to the renderer as `tray:<event>`
  *   permissions   web permissions the app's page may have beyond the clipboard (e.g. "media"
  *                 for the microphone); every other request is denied
+ *   updates       {releasesUrl} — the app's releases page; with it, a packaged app updates
+ *                 itself from the feed its electron-builder `publish` names (none: updates off)
  */
 export function runDesktopApp(config) {
   const state = {
@@ -437,6 +445,68 @@ export function runDesktopApp(config) {
     app.quit();
   }
 
+  // ── updates ────────────────────────────────────────────────────────────────
+  // electron-updater (https://www.electron.build/auto-update; JustVoice's plan 2026-10-09 §6,
+  // decided 2026-10-09): one check once the server is up, a download only when asked, and a
+  // downloaded update installs when the app quits. A Mac can't install an unsigned update
+  // (MacUpdater takes only a signed zip), so there it checks and links to the release. On in a
+  // packaged app that names its releases, or in development with a local feed (<ID>_UPDATE_FEED,
+  // read only when not packaged).
+  const envId = config.id.toUpperCase().replace(/-/g, "_");
+  const devFeed = !app.isPackaged ? process.env[`${envId}_UPDATE_FEED`] || null : null;
+  const updatesOn = !!config.updates?.releasesUrl && (app.isPackaged || !!devFeed);
+  // state: off · idle · checking · latest · available · downloading · ready · error
+  const update = {
+    state: updatesOn ? "idle" : "off",
+    version: null,
+    percent: 0,
+    error: null,
+    releaseUrl: null,
+    canInstall: process.platform !== "darwin",
+  };
+  let updater = null;
+  const updateNow = () => ({ ...update });
+  const firstLine = (e) => String(e?.message || e).split("\n")[0].slice(0, 200);
+  function setUpdate(patch) {
+    Object.assign(update, patch);
+    send("update:status", updateNow());
+  }
+  async function loadUpdater() {
+    if (updater || !updatesOn) return updater;
+    const { autoUpdater } = (await import("electron-updater")).default;
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.logger = console;
+    if (devFeed) {
+      // electron-updater's development route: a dev-app-update.yml naming the feed. Both the
+      // check and the download read it (setFeedURL alone fails the download: ENOENT).
+      const devConfig = path.join(chromeDir, "dev-app-update.yml");
+      fs.writeFileSync(devConfig, `provider: generic\nurl: ${JSON.stringify(devFeed)}\nupdaterCacheDirName: ${config.id}-updater-dev\n`);
+      autoUpdater.forceDevUpdateConfig = true;
+      autoUpdater.updateConfigPath = devConfig;
+    }
+    autoUpdater.on("checking-for-update", () => setUpdate({ state: "checking", error: null }));
+    autoUpdater.on("update-not-available", () => setUpdate({ state: "latest", version: null }));
+    autoUpdater.on("update-available", (info) =>
+      setUpdate({ state: "available", version: info.version, releaseUrl: `${config.updates.releasesUrl}/tag/v${info.version}` }),
+    );
+    autoUpdater.on("download-progress", (p) => setUpdate({ state: "downloading", percent: Math.floor(p.percent || 0) }));
+    autoUpdater.on("update-downloaded", (info) => setUpdate({ state: "ready", version: info.version, percent: 100 }));
+    autoUpdater.on("error", (e) => setUpdate({ state: "error", error: firstLine(e) }));
+    updater = autoUpdater;
+    return updater;
+  }
+  async function checkForUpdates() {
+    const u = await loadUpdater();
+    if (!u || ["checking", "downloading", "ready"].includes(update.state)) return updateNow();
+    try {
+      await u.checkForUpdates();
+    } catch (e) {
+      setUpdate({ state: "error", error: firstLine(e) });
+    }
+    return updateNow();
+  }
+
   // ── the renderer's commands ────────────────────────────────────────────────
   const handlers = {
     async pickDirectory({ title, defaultPath } = {}) {
@@ -516,6 +586,28 @@ export function runDesktopApp(config) {
       if (err) throw new Error(err);
       return null;
     },
+    updateStatus() {
+      return updateNow();
+    },
+    updateCheck() {
+      return checkForUpdates();
+    },
+    async updateDownload() {
+      const u = await loadUpdater();
+      if (!u || update.state !== "available" || !update.canInstall) return updateNow();
+      setUpdate({ state: "downloading", percent: 0 });
+      u.downloadUpdate().catch((e) => setUpdate({ state: "error", error: firstLine(e) }));
+      return updateNow();
+    },
+    async updateInstall() {
+      // "Restart now": the server stops first, as on any quit; then the installer runs and the
+      // app quits without the close handler stepping in.
+      if (!updater || update.state !== "ready") return updateNow();
+      await stopServer();
+      state.quitting = true;
+      updater.quitAndInstall(false, true);
+      return null;
+    },
   };
   for (const name of COMMANDS) {
     // Only the app's own page may call (the checklist's "validate the sender").
@@ -558,6 +650,7 @@ export function runDesktopApp(config) {
     createWindow();
     createTray();
     await startServer();
+    if (updatesOn) checkForUpdates();
   });
   return { state, startServer, stopServer, quitApp };
 }

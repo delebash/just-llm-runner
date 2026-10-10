@@ -7,7 +7,7 @@
 // only its renderer modules. Exposes:
 //   appShell.invoke(command, args) → Promise — the commands main.js handles (COMMANDS
 //     there; this list must match it);
-//   appShell.on(event, fn) → unsubscribe — the shell's pushes, `tray:*` only;
+//   appShell.on(event, fn) → unsubscribe — the shell's pushes, `tray:*` and `update:*` only;
 //   appShell.platform — "win32" | "darwin" | "linux";
 //   appShell.versions — { electron, chrome } (an app's About page names its runtime).
 
@@ -23,6 +23,10 @@ const COMMANDS = new Set([
   "setTrayLabels",
   "openExternal",
   "openPath",
+  "updateStatus",
+  "updateCheck",
+  "updateDownload",
+  "updateInstall",
 ]);
 
 contextBridge.exposeInMainWorld("appShell", {
@@ -31,7 +35,7 @@ contextBridge.exposeInMainWorld("appShell", {
     return ipcRenderer.invoke(`shell:${command}`, args ?? {});
   },
   on(event, fn) {
-    if (!String(event).startsWith("tray:")) throw new Error(`not a shell event: ${event}`);
+    if (!/^(tray|update):/.test(String(event))) throw new Error(`not a shell event: ${event}`);
     const listener = (_e, ...args) => fn(...args);
     ipcRenderer.on(event, listener);
     return () => ipcRenderer.removeListener(event, listener);

@@ -107,6 +107,7 @@ every app. Its fields (the template's file is the reference; the guard checks th
 | `icon` | `resolveElectronAssetsPath("icons/icon.png")` from `'#q-app/electron/main'` |
 | `window` · `trayIcon` · `logFile` | per app — window size/title/background, the tray icon, the server's live log (tray "Open log file") |
 | `closeHoldMs` · `csp` · `cspAdd` · `trayExtras` | optional — JustWrite's 400 ms pagehide hold · the `app://` CSP (the kit writes a default) · sources added to the default's directives (JustWrite: `{"img-src": ["https:"]}`, for images pasted from the web) · extra tray items sent as `tray:<event>` |
+| `updates` | optional — `{releasesUrl}`, the app's GitHub releases page. With it, a packaged app updates itself (electron-updater): one check at start-up, a download when the user presses Download, the install when the app quits or at "Restart now"; a Mac only checks and links to the release. The feed is electron-builder's `publish` (`quasar.config.js > electron.builder`), and the release workflow uploads `latest*.yml` and the `.blockmap`s with the installers. The app's `native.js` hands `desktopUpdater()` to the kit's `UpdatesPanel` (`:updater`). In development, `<ID>_UPDATE_FEED` names a local feed. |
 
 The window still loads `app://<id>/index.html` (the kit registers the protocol; Quasar's own
 template loads `file://`), with the hash router. **Packaging — `quasar.config.js > electron`:**

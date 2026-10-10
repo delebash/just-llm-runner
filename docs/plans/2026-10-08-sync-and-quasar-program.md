@@ -137,15 +137,17 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   `2026-10-09-apps-on-the-quasar-cli-layout.md`; the kit's TASKS item. JustWrite, JustVoice and
   docgen on `layouts/MainLayout.vue` + `pages/` + `css/`, `App.vue` a bare `<router-view />`, each
   checked side by side against its pre-port build; the guard checks the layout (kit 7ad83b5).
-- The phone's slice 5 (its screens): in progress 2026-10-09 — on main, not pushed (the kit's and
-  JustWrite's "The phone's screens (slice 5), in progress" commits). What is built and what is
-  next, in order: `2026-10-08-the-phone.md`, slice 5, "Where it stands". Slice 6 (iOS) follows.
+- The phone's slices 5 (its screens) and 6 (iOS): DONE 2026-10-09 and pushed — the record is
+  `2026-10-08-the-phone.md`; what's left for the user's word is JustWrite's TASKS, "The phone's
+  screens (slice 5) and the iOS build (slice 6)". The phone then waits (the user, 2026-10-09: no
+  automated phone builds; the apps' releases wait for one cross-platform release at the end).
 - The servers move to Hono: DECIDED 2026-10-09 (the kit's TASKS, "The family's servers move to
   Hono"; plan `2026-10-09-hono-standard.md`) — the phone's in-app server runs Hono through
   `app.fetch` instead of Fastify through `inject` on Node stand-ins. Comes before the phone's slice
   6 (iOS), so iOS is built once, on the final shape. DONE 2026-10-09 — kit 932ffb1 1feab06,
   just-sqlite-sync 22a7277, JustWrite c89dd89 dcdd753, docgen 9ab95ed, JustVoice e193d9d; the
-  phone checked on the Android 16 emulator. Next here: the phone's slice 5 (its screens), then 6.
+  phone checked on the Android 16 emulator. Next: the open tasks in JustVoice's TASKS, "Every open
+  task, in the recommended order (decided 2026-10-09)".
 
 ## Stops (things only the user can do)
 

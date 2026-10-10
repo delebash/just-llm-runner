@@ -96,8 +96,7 @@ BUILT:  2026-10-09 — the plan (`docs/plans/2026-10-09-apps-on-the-quasar-cli-l
         against its pre-port build (ten screens, shell and overlay states, UI zoom 0.9/1/1.15,
         1024/1920/560 windows, dark mode, the connection-error page). The standard's open deviation
         closed; the guard checks the layout.
-OPEN:   the phone screens (the phone plan's slice 5): in progress — what is built and what is
-        next: the phone plan, slice 5, "Where it stands".
+OPEN:   nothing. (The phone screens, slices 5 and 6, DONE 2026-10-09 — the phone plan.)
 GO:     given 2026-10-09 — "… go".
 
 ## The family standard: one short rules file every repo imports; app-structure.md holds current rules only [2026-10-09]
@@ -160,14 +159,12 @@ BUILT:  2026-10-09 — `docs/family-rules.md` (21 lines, four rules); imported b
         Q3's wording (the other session's request) carried into §3, §4 and §Q.4.
         The SPDX headers already in files stay (nothing adds new ones). The kit's CLAUDE.md is
         rewritten for the JavaScript kit (2026-10-09).
-OPEN:   the user runs /doctor prompt-audit in each repo. The apps move to the layout Quasar's CLI
-        creates for a new project — the template's (`src/pages/`, `src/layouts/`, `src/css/`) in
-        place of `views/` (JW 32 files, JV 29, docgen 9) and `styles/` (2 each); needs its own plan
-        and go (another session is working in JustWrite's screens). Found, not in this go: the
-        kit's `README.md` ("What's here (Python core)") and `server/README.md` "Check it" (a route
-        diff against a Python server, scripts that no longer exist) are stale; the guard no longer
-        asserts §14's renderer lanes, the door pins or the launcher name for any app (those checks
-        ran only for the Electron + Vite kind).
+OPEN:   the user runs /doctor prompt-audit in each repo. (Done since: the apps moved to the CLI's
+        layout — the item above; and under the 2026-10-09 "do it all" go (JustVoice's TASKS, "Every
+        open task…"): both READMEs rewritten for the JavaScript-only, Hono kit; the guard asserts
+        §14's renderer lanes, skeleton files and door pins again, and the headless launcher's name,
+        in the CLI's layout (app-structure §Q.10) — and the template gained its launcher, which it
+        never had.)
 GO:     given 2026-10-09 — "your rec all go"; then "your rec go" (the headers stay, the kit's
         CLAUDE.md rewritten). The layout move: decided, go needed.
 

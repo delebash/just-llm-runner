@@ -645,8 +645,7 @@ function checkRetired(name, dir, patterns) {
 // ── check 8 · the family skeleton (app-structure §14) ────────────────────────────
 // For every app: tests live beside their files, the lint script gates the whole include
 // surface, and Biome is pinned exact. The Quasar layout itself is checkQuasar's (§Q.10); §14's
-// renderer lanes and files are not asserted (the Electron + Vite kind's checks for them went
-// with that kind, 2026-10-09).
+// renderer lanes, skeleton files and door pins are checkRendererSkeleton's (products only).
 function checkSkeleton(app) {
   const name = app.name;
   for (const f of walk(join(app.dir, "src"))) {
@@ -660,6 +659,73 @@ function checkSkeleton(app) {
     }
     const biome = p.devDependencies?.["@biomejs/biome"] || p.dependencies?.["@biomejs/biome"] || "";
     if (/[\^~]/.test(biome)) fail(name, `@biomejs/biome "${biome}" is a RANGE — the family pins exact (P10)`);
+  }
+}
+
+// §14's renderer, in the CLI's layout (re-cut 2026-10-09 from the Electron + Vite kind's lists):
+// every product has the lanes and the skeleton files, and the kit-door files still ride the kit —
+// the ratified page as assertions, INCLUDING its recorded N/As (docgen has no KeyboardCheatsheet —
+// the feature is absent — and no composables/ until it has a composable).
+const RENDERER_LANES = ["boot", "components", "css", "layouts", "pages", "router", "services", "stores"];
+const SKELETON_FILES = [
+  "src/css/tokens.css", "src/css/app.scss", "src/pages/HomePage.vue",
+  "src/boot.smoke.test.js", "src/services/helpDocs.js", "src/stores/ui.js",
+  ".gitattributes", "biome.json", "vitest.config.js", "scripts/node24.js", "server/vitest.config.js",
+];
+const APP_HAS = {
+  composables: new Set(["JustWrite", "JustVoice"]),
+  cheatsheet: new Set(["JustWrite", "JustVoice"]),
+};
+// The kit-door content pins: the named file must actually ride the kit, or the adapter has been
+// re-forked in place (name intact, implementation regrown).
+const DOOR_PINS = [
+  ["src/boot.smoke.test.js", /registerBootSmoke/, "the kit bootSmoke skeleton"],
+  ["src/services/helpDocs.js", /makeDocsHelpAdapter/, "the kit helpDocs factory"],
+  ["src/stores/ui.js", /useUiStore/, "the family store name"],
+];
+function checkRendererSkeleton(app) {
+  const name = app.name;
+  for (const lane of RENDERER_LANES) {
+    if (!existsSync(join(app.dir, "src", lane))) fail(name, `src/${lane}/ lane missing (§14)`);
+  }
+  if (APP_HAS.composables.has(name) && !existsSync(join(app.dir, "src", "composables"))) {
+    fail(name, "src/composables/ lane missing (§14)");
+  }
+  for (const rel of SKELETON_FILES) {
+    if (!existsSync(join(app.dir, rel))) fail(name, `${rel} missing — the skeleton (§14)`);
+  }
+  if (APP_HAS.cheatsheet.has(name) && !existsSync(join(app.dir, "src/components/KeyboardCheatsheet.vue"))) {
+    fail(name, "src/components/KeyboardCheatsheet.vue missing (§14)");
+  }
+  for (const [rel, re, what] of DOOR_PINS) {
+    const p = join(app.dir, rel);
+    if (existsSync(p) && !re.test(readFileSync(p, "utf8"))) {
+      fail(name, `${rel} no longer rides ${what} — the door has been re-forked in place`);
+    }
+  }
+}
+
+// The headless launcher (§Q.3): build/launcher/ holds a <name>-server launcher, the installer
+// copies it beside the exe, and no launcher shares the app executable's name — Windows resolves a
+// bare name to the GUI exe first (JustVoice's CreateProcessW infinite-window trap).
+function checkLauncher(app) {
+  const name = app.name;
+  const launchDir = join(app.dir, "build", "launcher");
+  const launchers = existsSync(launchDir) ? readdirSync(launchDir) : [];
+  if (!launchers.some((f) => basename(f, extname(f)).endsWith("-server"))) {
+    fail(name, "build/launcher/ has no <name>-server launcher — headless is the app's own exe run as Node (§Q.3)");
+  }
+  const cfg = existsSync(join(app.dir, "quasar.config.js")) ? readFileSync(join(app.dir, "quasar.config.js"), "utf8") : "";
+  // path.join(root, 'build', 'launcher') or 'build/launcher'
+  if (!/extraResources:\s*\[[^\]]*['"/\\]launcher\/?['"]/.test(cfg)) {
+    fail(name, "quasar.config.js's builder doesn't copy build/launcher/ beside the exe (extraResources) — §Q.3");
+  }
+  const exe = (cfg.match(/executableName:\s*['"]([^'"]+)['"]/) || [])[1];
+  if (!exe) fail(name, "quasar.config.js's builder.win has no executableName — the exe's name must be known to keep it apart from the launcher's (§Q.3)");
+  for (const f of launchers) {
+    if (exe && basename(f, extname(f)).toLowerCase() === exe.toLowerCase()) {
+      fail(name, `build/launcher/${f} shares the app executable's name — Windows would run the GUI exe instead (the CreateProcessW trap, §Q.3)`);
+    }
   }
 }
 
@@ -906,6 +972,8 @@ for (const app of APPS) {
     checkScripts(app);
     checkServer(app);
     checkSkeleton(app);
+    checkRendererSkeleton(app);
+    checkLauncher(app);
     checkDesktopMain(app);
     checkQuasar(app);
   }
@@ -927,6 +995,7 @@ if (TEMPLATE.kind !== "quasar") {
   checkScripts(TEMPLATE);
   checkServer(TEMPLATE);
   checkSkeleton(TEMPLATE);
+  checkLauncher(TEMPLATE);
   checkDesktopMain(TEMPLATE);
   checkQuasar(TEMPLATE);
   checkOneSaveDoor(TEMPLATE, files);

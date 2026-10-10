@@ -16,6 +16,7 @@ app moves to Quasar, built by one set of framework rules"; the facts behind it:
 | `server/` | the app's Node server — its own package (`family-template-server`): Hono on the kit's platform (`Hono` and `serveStatic` from the kit — one Hono), the family guards (CSRF, CORS, bearer auth), the app's routes, the built UI for the headless path | the desktop app runs it in a utilityProcess; `npm run server` headless |
 | `src-electron/` | the desktop app: `electron-main.js` calls the kit's `runDesktopApp` (data folder, server, tray, the `app://` window, security); `electron-preload.js` is the kit's preload | `quasar dev -m electron` · `quasar build -m electron` (electron-builder, NSIS) |
 | `src-capacitor/` | the phone app (Android, iOS) | `quasar build -m capacitor -T android` |
+| `build/launcher/` | the headless launcher `family-template-server.cmd`: the installed app's own exe (`familytemplate.exe`) run as Node on its server package — never the exe's name (§Q.3) | copied beside the exe by the installer; `family-template-server serve` |
 
 ## Commands
 

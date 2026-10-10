@@ -241,8 +241,12 @@ export default defineConfig((/* ctx */) => {
         // https://www.electron.build/configuration
         appId: 'com.familytemplate.app',
         productName: 'Family Template',
-        win: { target: 'nsis' },
+        // the exe never shares the headless launcher's name (app-structure.md §Q.3)
+        win: { target: 'nsis', executableName: 'familytemplate' },
         nsis: { oneClick: false, allowToChangeInstallationDirectory: true },
+        // the headless launcher (family-template-server.cmd) beside the exe — the app's own exe
+        // run as Node on its server package (§Q.3)
+        extraResources: [ { from: path.join(import.meta.dirname, 'build', 'launcher'), to: '..' } ],
         // native modules can't load from inside the asar archive (the server itself runs from it)
         asarUnpack: [ '**/*.node' ]
       }

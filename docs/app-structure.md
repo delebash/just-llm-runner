@@ -350,6 +350,16 @@ Chromium keeps its files there locked and the watcher fails on them (EBUSY).
   `vite.config.js`, no `src/main.js`, no `electron/main.js`, no `src-tauri/`.
 - **the CLI's layout** (Q.1): `src/layouts/MainLayout.vue`; pages in `src/pages/`; no
   `src/views/`, `src/styles/` or `src/AppShell.vue`; `App.vue`'s template a bare `<router-view />`.
+- **the headless launcher** (Q.3): `build/launcher/` holds a `<name>-server` launcher, the builder
+  copies it beside the exe (`extraResources`), `builder.win.executableName` is set, and no
+  launcher shares the exe's name.
+- **§14's renderer** (products, not the template): the lanes `boot/ components/ css/ layouts/
+  pages/ router/ services/ stores/` (+ `composables/` in JW and JV); the skeleton files
+  (`css/tokens.css`, `css/app.scss`, `pages/HomePage.vue`, `boot.smoke.test.js`,
+  `services/helpDocs.js`, `stores/ui.js`, `.gitattributes`, `biome.json`, `vitest.config.js`,
+  `scripts/node24.js`, `server/vitest.config.js`; `KeyboardCheatsheet.vue` in JW and JV); and the
+  door pins — `boot.smoke.test.js` rides the kit's `registerBootSmoke`, `helpDocs.js` its
+  `makeDocsHelpAdapter`, `stores/ui.js` exports `useUiStore`.
 - Biome's version is one exact pin across the family, the template included; `biome.json` is
   byte-identical among the apps.
 

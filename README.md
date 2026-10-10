@@ -1,28 +1,22 @@
 # just-llm-runner
 
-Shared **local-LLM runner core** for **JustVoice** and **JustWrite**.
+The family's shared kit — **JustWrite**, **JustVoice**, **just-ai-i18n-docgen** and any new app
+built from `template/`.
 
 Detects hardware → manages/recommends GGUF models → downloads the right
 prebuilt **llama.cpp** (CUDA runtime bundled — *no toolkit install*) →
 spawns **`llama-server`** (OpenAI-compatible). One implementation, used by
-both apps, so detection/recommendation/flags never drift.
+every app, so detection/recommendation/flags never drift. Around it: the LLM
+stack (providers, routing, presets, prompts, usage), the server's platform
+pieces (Hono, errors, the spawn door, the data folder, backup, logs, ZIP), the
+desktop shell, and the shared Vue UI.
 
-**Internal library — NOT published to PyPI/npm.** A Tauri + Python app consumes
-`llm_runner` as a **git dependency** (pinned tag) or via editable/path install
-during dev, frozen into its bundle (PyInstaller → Tauri sidecar). An Electron app
-consumes the JavaScript twin, `server/`, as `"@delebash/llm-runner":
-"file:../just-llm-runner/server"`, packed by electron-builder. The end user never
-installs it. See `docs/plans/archive/2026-06-16-builtin-llm-runner.md` in the
-JustVoice repo for the full architecture + decision history.
-
-**Two languages until JustVoice moves.** The family is moving to Electron and a
-Node server (JustVoice's `docs/plans/2026-10-07-electron-node-plan.md`), so the
-kit exists twice: `llm_runner/` (Python, below) and `server/` — the same stack,
-runner and platform pieces in plain JavaScript on Electron's Node 24, plus the
-desktop shell every moved app runs (`@delebash/llm-runner/shell`). Same routes,
-same camelCase JSON, same tables; a kit server change lands in both. How to
-consume and check it: [`server/README.md`](server/README.md); how it was built:
-[`docs/plans/2026-10-07-kit-in-javascript.md`](docs/plans/2026-10-07-kit-in-javascript.md).
+**Internal library — NOT published to npm.** An app consumes the server package as
+`"@delebash/llm-runner": "file:../just-llm-runner/server"` and the UI through a Vite source
+alias to `ui/` (`@delebash/llm-ui`); electron-builder packs them. The end user never installs
+it. Plain JavaScript (`"type": "module"`) on Node 24 — the Python core this repo began with was
+ported (`docs/plans/2026-10-07-kit-in-javascript.md`) and removed with the family's move to
+Electron and a Node server (2026-10-08).
 
 ## How a model's launch config derives (the 4-tier doctrine, 2026-07-06)
 
@@ -38,7 +32,7 @@ one visible table answers both "which model" and "which launch config".
 
 Every local llama-server launch resolves its flags in four tiers, strongest last:
 
-1. **Our estimate — admission only, never emitted.** `compute_fit` projects VRAM for the
+1. **Our estimate — admission only, never emitted.** `computeFit` (`runner/fit.js`) projects VRAM for the
    arbiter's reservation and the Fit badges; when a placement knob is not explicit, the
    estimate is NOT written into the launch (see tier 3).
 2. **Upstream engine fit — placement by omission.** An UNTUNED model's section/argv omits
@@ -56,42 +50,23 @@ Every local llama-server launch resolves its flags in four tiers, strongest last
    keeps its tune. If a fit-placed launch fails for any reason, the runner retries once
    with the explicit computed placement before the ordinary failure handling.
 
-## What's here (Python core)
-- `llm_runner.router` — mountable FastAPI router (both apps `include_router`).
-- `runner/config.py` — the engine DEFAULTS as module constants: pinned llama.cpp build,
-  per-platform binary assets, VRAM safety margin, download knobs. A host seeds these into
-  its DB where they become user-editable; `default_config()` serves them straight for
-  standalone use. (This was `runner-manifest.json` until A7 — config is data, and data
-  belongs in the DB. The file is gone; the *model catalog* half of it is host-owned now,
-  which is why an unwired `/models` is empty.)
-- `schema.py` — camelCase pydantic contract (`RunnerConfig`, `ModelEntry`, `HardwareInfo`).
-- `hardware.py` — self-contained detection (platform, NVIDIA GPU+driver+VRAM,
-  AMD/Intel rows via sysfs/registry, RAM, runtimes). No CUDA toolkit needed —
-  detection only.
-- `binary.py` — select + download + unpack the llama.cpp binary for the
-  detected hardware (github archives, per-variant dirs + spawn fallback chain).
-  Docker rows are never auto-selected: no pin-faithful container exists for the
-  pinned build (upstream ships rolling tags only), so Linux+NVIDIA uses the
-  pinned Vulkan build; the container route returns when a digest-pinned image
-  is captured at a pin bump.
-- `download.py` — streaming download (progress + cancel).
-- `models.py` — GGUF acquisition: resolve real filenames from the HF tree by
-  `quant` (+ `mmproj` sidecar), stream into the HF cache layout llama.cpp
-  loads from (blobs/snapshots/refs). Idempotent; no `huggingface_hub` dep.
-- `gguf.py` — minimal GGUF header reader (architecture, layer count, embedding
-  dim, expert count) — the structural inputs to the VRAM-fit math.
-- `runner/lifecycle.py` + `runner/process.py` — VRAM-fit (`-ngl` / `--n-cpu-moe`
-  from detected VRAM), flag composition from the config/DB presets, and
-  `llama-server` spawn with probe-and-back-off on CUDA OOM (lifecycle:
-  start/stop/health/url; the port is allocated, never assumed).
-- `scripts/seed-facts-audit.py` — standalone stdlib tripwire for the seeded
-  model catalogs (per-app since decision ④ 2026-08-05 — JustWrite's
-  `JW_CURATED_CATALOG` + extra rows; the runner's `DEFAULT_CATALOG` ships
-  empty, mechanism only): per row
-  the HF repo must exist, the seeded license must match the repo's tag AND its
-  declared `base_model`'s tag (de-circularized — a repackager mislabel flags
-  instead of self-confirming), and the quant / MTP-draft files must be in the
-  tree. Network — run it at any seed change and in sessions; not CI-gated.
+## What's here
+
+- **`server/` — `@delebash/llm-runner`**, the server kit: `installLlm` (the whole LLM stack in
+  one call), the runner (`runner/` — hardware, binary, download, models, gguf, lifecycle, the
+  router), the platform (`platform/` — the Hono server and its guards, errors, the spawn door,
+  the data-folder ladder, SQLite, backup, logs, ZIP, `serve.js` for the desktop and headless
+  paths, the phone's worker runtime) and the desktop shell (`shell/` — `runDesktopApp`, the
+  preload bridge). How to consume and check it: [`server/README.md`](server/README.md).
+- **`ui/` — `@delebash/llm-ui`**, the shared Vue UI (below).
+- **`template/`** — the reference app every family app is shaped like (`docs/app-structure.md`
+  §Q): a Quasar app whose Electron mode is the desktop app and Capacitor mode the phone app, with
+  its server as its own package.
+- **`scripts/check-family.js`** — the family guard: every app's layout, dependencies and rules
+  (`node scripts/check-family.js` from any family repo). `scripts/verify-model-pick.js` — the §10
+  speed-floor pick's truth table.
+- **`docs/`** — the family rules (`family-rules.md`), the app layout (`app-structure.md`), the
+  research register (`dev/RESEARCH.md`), the tracker (`dev/TASKS.md`) and the plans.
 
 The shared Vue GUI lives here too: **`ui/` (`@delebash/llm-ui`)** — plain-JS Vue
 SFCs the apps consume via a Vite source alias (peer deps: vue, quasar, pinia,
@@ -107,107 +82,28 @@ cache — one cache + one endpoint accessor kit-wide), the presentational
 `embedTexts`/`ensureEmbeddingReady`.
 
 ## Consume it
-```toml
-# pyproject.toml of the consuming app / sidecar
-dependencies = ["llm-runner @ git+https://github.com/delebash/just-llm-runner.git@v0.1.0"]
-```
-```bash
-# dev: editable
-pip install -e ../just-llm-runner
-```
 
-### The standard: `install_llm` — one call, the whole stack
+```js
+import { installLlm, router as runnerRouter } from "@delebash/llm-runner";
 
-Every app in the family (JustWrite today; JustVoice and just-ai-i18n at convergence)
-adopts the same way. Three lines of wiring:
-
-```python
-import llm_runner
-from llm_runner.llm import install_llm, seed_llm
-
-app.include_router(llm_runner.router)                       # the runner's process API
-install_llm(app, engine=engine, session_factory=SessionLocal, data_dir=my_data_dir)
-seed_llm()                                                  # idempotent, insert-if-missing
+app.route("/", runnerRouter());                  // /v1/llm-runner/* — the runner's process API
+await installLlm(app, { db, dataDir, product: "My App" /* , featureCatalog, enginePresets, … */ });
 ```
 
-That is a COMPLETE call — **the minimal contract**. `feature_catalog`/`feature_prompts`
-default to empty, because an app with no per-action AI features is a first-class consumer.
-An app *with* features registers them in the same call, JustWrite-style:
+`installLlm(app, { db, dataDir })` is a complete call — **the minimal contract**: an app with no
+per-action AI features is a first-class consumer. You get provider CRUD + registry, dispatch with
+per-feature routing, engine presets, the model catalog, tunes + autotune, the knob catalog, the
+usage ledger, and the bundled runner wired to the database's catalog. `app = null` is the
+headless boot (every store, seed and seam wired, nothing mounted). The full server shape:
+[`server/README.md`](server/README.md) and `template/server/`.
 
-```python
-install_llm(app, engine=…, session_factory=…, data_dir=…,
-            feature_catalog=[FeatureCatalogEntry(key="translate", label="Translate"), …],
-            feature_prompts={…},          # or {} — build prompts yourself, dispatch directly
-            engine_presets=…, feature_presets=…)
-```
-
-You get: provider CRUD + registry, dispatch with per-feature routing, engine presets
-(temperature/topP/samplers/think), the model catalog, tunes + autotune, the knob catalog,
-the usage ledger, and the bundled runner wired to the DB catalog. Requirements: your app is
-FastAPI + SQLAlchemy (`engine`/`session_factory` are SQLAlchemy objects, and the shipped
-stores are the only storage implementation) — which is every Python app in this family. A
-Hono app calls the JavaScript twin, `installLlm(app, { db, dataDir, … })`
-(`server/README.md`).
-
-**Always pass `data_dir`.** Without it the engine and every downloaded GGUF land in
-`~/.cache/just-llm-runner` — outside your app's data root, so uninstalling the app strands
-the weights and a data-dir backup silently misses them. The install logs a warning if you
-omit it.
-
-**Headless (CLI doors):** `install_llm(None, …)` runs everything except the router
-mounts — same storage/seed/runner wiring, no FastAPI app needed. A CLI that resolves
-presets boots through this, never by re-implementing the storage half (2026-08-02:
-the first consumer to need it did exactly that, against private imports).
-
-The bare call is enforced twice: `tests/test_install_llm.py` in the suite, and check 3 of
-`scripts/check-clean-install.py`, which runs it in a venv holding ONLY the declared
-dependencies — the environment a non-family app actually is.
-
-**Subset: runner only.** An app that wants local model management and nothing else mounts
-just `llm_runner.router` — hardware, engine install, download/spawn, no storage anywhere in
-its path. `/models` answers with `catalogWired: false` until a catalog source is wired
-(`configure_service(catalog_fn=…, cache_root=…)` — any callable, called once at boot).
-
-**Library mode (no server, no DB).** The storage-free core imports without SQLAlchemy —
-adapters, `dispatch`, `registry`, `tiers`, `schema`. A CLI or script builds an `LLMConfig`
-by hand and calls `dispatch.chat(config=…, feature=…)`, or drives `RunnerService` directly.
-Documented, enforced by check 2 of the clean-install script, and deliberately WITHOUT
-helper machinery — it is an escape hatch, not a second standard.
-
-### Pin or editable?
-
-**Pin the tag unless you routinely run that consumer's test suite.** JustWrite uses a live
-editable link and that is fine *because* its suite runs constantly against it — drift fails
-a test within hours. JustVoice consumed the same way without a running suite and silently
-broke for weeks when a shared symbol was deleted. A pinned consumer stays green and meets
-the change at bump time, with attention on it.
-
-### After changing dependencies, any `__init__.py`, or `install_llm`
-
-```bash
-python scripts/check-clean-install.py     # ~60 s, builds a throwaway venv
-python scripts/check-consumers.py         # resolves every consumer's llm_runner imports
-```
-
-The suite runs on JustWrite's interpreter, where every host dependency already exists, so it
-**cannot** see a missing dependency, an eager storage import, or a broken minimal contract.
-The first script can: declared-deps import census, then the bare `install_llm` call on
-declared deps only, then the storage-free core with SQLAlchemy removed. All three checks
-have been watched failing. The second resolves every `llm_runner` symbol the sibling apps
-import, so deleting a shared symbol fails loudly instead of rotting a consumer that isn't
-running its tests. Not CI — scripts you run.
-
-**Not yet proven at runtime:** an engine download + model load driven end-to-end from a
-non-JustWrite host. The i18n rewrite's first boot is that proof; until then the claim stops
-at "the stack mounts, seeds and answers".
+**Always pass `dataDir`.** Without it the engine and every downloaded GGUF land outside the app's
+data folder, so uninstalling the app strands the weights and a backup silently misses them.
 
 ## Status
-The shared stack is live in both apps (JustWrite fully; JustVoice pending
-convergence). Open work: `docs/dev/TASKS.md` (this repo's live tracker); per-task
-history in `docs/plans/`. The test suite is 764 tests (collected 2026-08-04) and runs on
-JustWrite's venv (this repo has none of its own — see `CLAUDE.md`):
-`../justwrite-app/.venv/Scripts/python.exe -m pytest -q`. All green except one
-known-bad on Windows, `test_hardware.py::test_pci_gpus_linux_lspci_name_match`,
-which exercises a Linux `lspci` path.
+
+Live in JustWrite, JustVoice and docgen. Open work: `docs/dev/TASKS.md` (this repo's tracker);
+per-task history in `docs/plans/`. The server suite: `cd server && npm test` — 1,136 passed,
+2 expected failures, 12 skipped (2026-10-09).
 
 SPDX-License-Identifier: MIT

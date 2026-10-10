@@ -1,11 +1,5 @@
-__pycache__/
-*.py[cod]
-*.egg-info/
-.eggs/
-build/
+# The kit is plain JavaScript (the Python core went 2026-10-08). Build output: Quasar's dist/ in
+# the template, Gradle's own ignores under src-capacitor/android/; template/build/ is tracked —
+# it holds the headless launcher (app-structure.md §Q.3).
 dist/
-.pytest_cache/
-.ruff_cache/
-.venv/
-venv/
 node_modules/

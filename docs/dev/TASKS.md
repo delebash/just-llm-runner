@@ -514,37 +514,6 @@ BUILT:  1. `runner/cache_registry.py:120-121` — an `apps` value that isn't a l
 OPEN:   each needs its own go (4 is decided: kept until the move is done).
 GO:     needed.
 
-## FINDING — the data-dir ladder's four copies disagree, and Tauri writes outside the chosen root [2026-10-05]
-
-STATE:  FINDING — found by a study agent 2026-10-05 (JustVoice's
-        `docs/plans/2026-10-05-electron-node-study.md` §4.1); the kit's function lines
-        code-verified, the Rust lines [attributed]. Tracked at the user's word: "track all side
-        finidngs". Against the 2026-08-14 ruling: nothing lands where the user didn't choose.
-BUILT:  the copies — `llm_runner/platform/data_paths.py:41-128` (`_is_writable` 41,
-        `install_dir` 90, `resolve_data_dir` 99); JustVoice `src-tauri/src/lib.rs:70-207`,
-        JustWrite `lib.rs:254-344`, docgen `lib.rs:36-124`. They differ: the OS fallback folder
-        (Tauri's `app_data_dir` = `%APPDATA%\<identifier>` vs platformdirs'
-        `%LOCALAPPDATA%\<App>\<App>`); `dataroot.txt` is read only by the Rust; the dev install
-        dir is `target/debug` for Rust and the checkout for Python. Tauri itself writes
-        `%APPDATA%\<id>\.window-state.json` (all three apps) and `%LOCALAPPDATA%\<id>\EBWebView`
-        (JustVoice, JustWrite).
-OPEN:   the ONE ladder is built (2026-10-08): `server/src/platform/data_paths.js` — the env
-        variable, the Change-folder pointer (now read by the headless server too), `data/` in the
-        install dir (`<repo>/data` in development), then the OS fallback decided 2026-10-08:
-        `%LOCALAPPDATA%\<App>\<App>`, its pointer `%LOCALAPPDATA%\<App>\dataroot.txt` (JustVoice
-        TASKS, the eight answers). The shell (`server/src/shell/`) puts Chromium's files and the
-        window state under `<root>/electron`. Closes app by app as each moves off Tauri.
-GO:     needed.
-
-## FINDING — JustWrite and docgen hard-kill their servers on stop; only JustVoice stops gracefully [2026-10-05]
-
-STATE:  FINDING — code-verified 2026-10-05 (study §4.2). Tracked at the user's word.
-BUILT:  JustWrite `src-tauri/src/lib.rs:360` and docgen `lib.rs:140` — `kill_child` →
-        `child.kill()`; JustVoice posts `/v1/shutdown`, waits, then kills
-        (`src-tauri/src/lib.rs:235-257`, since 2026-09-29).
-OPEN:   the shared Electron main module's stop — graceful for all three (study §4.2).
-GO:     needed.
-
 ## Engine update safety + the stable channel — plan written, Opus executes [verified 2026-09-19]
 
 STATE:  DECIDED 2026-09-19. The llama.cpp review (`docs/llama-cpp-watch.md`, row

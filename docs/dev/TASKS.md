@@ -865,11 +865,15 @@ WHY:    a re-tune sent in that window (the Lab's re-load with other switches, ri
         turns "loaded") is dropped without a word — the router keeps the old config.
 BUILT:  the test file: the 300 s timeout, and `stop_stays_stopped`'s failure message now carries
         the resident row, the service's ledger entry and the router's raw GET /models.
-OPEN:   the user's word on the runner's behaviour — a load with DIFFERENT tuning while the same
-        model's load is finishing: run it once that load finishes (queue the newer tuning), or
-        refuse it visibly ("still loading — try again"). Today it is silently dropped. Then
+DECIDED: 2026-10-09 — asked (JustVoice TASKS "The work's eight questions"): "The dropped re-load:
+        should a re-load with different settings, sent while the first load finishes, run when it
+        finishes, or be refused visibly ('still loading — try again')? My recommendation: run it
+        when the load finishes — the user asked for it, and today it's silently lost." The user:
+        "your rec all go".
+OPEN:   the runner runs a load with DIFFERENT tuning, sent while the same model's load is
+        finishing, once that load completes (the newest tuning wins); then
         `switch_change_reflected_on_reload` should pass in the full file.
-GO:     needed — for the runner change.
+GO:     given 2026-10-09 ("your rec all go").
 
 
 ## The Recommended badge and Quick setup share ONE runnable rule [verified 2026-09-19]
